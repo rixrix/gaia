@@ -14,7 +14,7 @@
   limitations under the License.
 */
 
-/*global Clock, AppWindowManager, SettingsListener */
+/*global Clock, SettingsListener */
 /*global TouchForwarder, FtuLauncher */
 /*global MobileOperator, SIMSlotManager, System */
 /*global Bluetooth */
@@ -140,6 +140,8 @@ var StatusBar = {
    */
   systemDownloadsCount: 0,
 
+  _minimizedStatusBarWidth: window.innerWidth,
+
   /**
    * Object used for handling the clock UI element, wraps all related timers
    */
@@ -148,8 +150,8 @@ var StatusBar = {
   /* For other modules to acquire */
   get height() {
     if (document.mozFullScreen ||
-               (AppWindowManager.getActiveApp() &&
-                AppWindowManager.getActiveApp().isFullScreen())) {
+               (System.currentApp &&
+                System.currentApp.isFullScreen())) {
       return 0;
     } else {
       return this._cacheHeight ||
@@ -169,6 +171,7 @@ var StatusBar = {
     window.addEventListener('ftuskip', this);
     window.addEventListener('ftuopen', this);
     window.addEventListener('apptitlestatechanged', this);
+    window.addEventListener('appchromecollapsed', this);
   },
 
   addSettingsListener: function sb_addSettingsListener(settingKey) {
@@ -238,6 +241,12 @@ var StatusBar = {
     window.addEventListener('attentionopened', this);
     window.addEventListener('attentionclosed', this);
 
+    window.addEventListener('sheets-gesture-begin', this);
+    window.addEventListener('sheets-gesture-end', this);
+    window.addEventListener('utilitytraywillshow', this);
+    window.addEventListener('utilitytraywillhide', this);
+    window.addEventListener('utility-tray-overlayopened', this);
+    window.addEventListener('utility-tray-overlayclosed', this);
     window.addEventListener('cardviewshown', this);
     window.addEventListener('cardviewclosed', this);
 
@@ -288,10 +297,9 @@ var StatusBar = {
     window.addEventListener('appopening', this);
     window.addEventListener('appopened', this);
     window.addEventListener('activityopened', this);
+    window.addEventListener('activityterminated', this);
     window.addEventListener('homescreenopening', this);
     window.addEventListener('homescreenopened', this);
-    window.addEventListener('sheets-gesture-begin', this);
-    window.addEventListener('sheets-gesture-end', this);
     window.addEventListener('stackchanged', this);
 
     // We need to preventDefault on mouse events until
@@ -333,7 +341,7 @@ var StatusBar = {
         this._inLockScreenMode = false;
         this.toggleTimeLabel(true);
         this._updateIconVisibility();
-        this.setAppearance(AppWindowManager.getActiveApp());
+        this.setAppearance(System.currentApp);
         break;
 
       case 'attentionopened':
@@ -345,10 +353,19 @@ var StatusBar = {
         this.toggleTimeLabel(!this.isLocked());
         break;
 
+      case 'sheets-gesture-begin':
+        this.element.classList.add('hidden');
+        this.pauseUpdate();
+        break;
+
+      case 'utilitytraywillshow':
+      case 'utilitytraywillhide':
       case 'cardviewshown':
         this.pauseUpdate();
         break;
 
+      case 'utility-tray-overlayopened':
+      case 'utility-tray-overlayclosed':
       case 'cardviewclosed':
         this.resumeUpdate();
         break;
@@ -508,17 +525,21 @@ var StatusBar = {
 
       case 'homescreenopening':
       case 'appopening':
-      case 'sheets-gesture-begin':
         this.element.classList.add('hidden');
         break;
 
       case 'sheets-gesture-end':
         this.element.classList.remove('hidden');
+        this.resumeUpdate();
         break;
 
       case 'stackchanged':
-        this.setAppearance(AppWindowManager.getActiveApp());
+        this.setAppearance(System.currentApp);
         this.element.classList.remove('hidden');
+        break;
+
+      case 'appchromecollapsed':
+        this._updateMinimizedStatusBarWidth();
         break;
 
       case 'apptitlestatechanged':
@@ -528,24 +549,35 @@ var StatusBar = {
         this.setAppearance(evt.detail);
         this.element.classList.remove('hidden');
         break;
+      case 'activityterminated':
+        // In this particular case, we want to restore the original color of
+        // the bottom window as it will *become* the shown window.
+        this.setAppearance(evt.detail, true);
+        this.element.classList.remove('hidden');
+        break;
     }
   },
 
-  setAppearance: function(app) {
+  setAppearance: function(app, useBottomWindow) {
     // Avoid any attempt to update the statusbar when
     // the phone is locked
     if (this._inLockScreenMode) {
       return;
     }
 
-    // Fetch top-most window to figure out color theming.
-    var top = app.getTopMostWindow();
+    // Fetch top-most (or bottom-most) window to figure out color theming.
+    var themeWindow =
+      useBottomWindow ? app.getBottomMostWindow() : app.getTopMostWindow();
+
     this.element.classList.toggle('light',
-      !!(top.appChrome && top.appChrome.useLightTheming())
+      !!(themeWindow.appChrome && themeWindow.appChrome.useLightTheming())
     );
 
-    this.element.classList.toggle('maximized', app.isHomescreen ||
-      !!(app.appChrome && app.appChrome.isMaximized())
+    // Maximized state must be based on the bottom window if we're using it but
+    // use the currently showing window for other cases.
+    var maximizedWindow = useBottomWindow ? themeWindow : app;
+    this.element.classList.toggle('maximized', maximizedWindow.isHomescreen ||
+      !!(maximizedWindow.appChrome && maximizedWindow.appChrome.isMaximized())
     );
   },
 
@@ -563,26 +595,41 @@ var StatusBar = {
     return window.innerWidth - (3 * 2);
   },
 
-  _getMinimizedStatusBarWidth: function sb_getMinimizedStatusBarWidth() {
-    // The rocket bar takes approx. 50% of the total screen width in portrait.
-    // This formula reflects the CSS styling applied to #statusbar-minimized.
-    // From /apps/system/style/statusbar/statusbar.css:
-    // * width: calc(100% - 100% * 0.682 + 8rem * 0.682 - 0.5rem);
-    // * padding: 0 0.3rem 0 0;
-    return window.innerWidth - window.innerWidth * 0.682 + 80 * 0.682 - 5 - 3;
-  },
+  _updateMinimizedStatusBarWidth: function sb_getMinimizedStatusBarWidth() {
+    var app = System.currentApp;
+    app = app && app.getTopMostWindow();
 
-  pauseUpdate: function sb_pauseUpdate() {
-    this._paused = true;
-  },
+    // Get the actual width of the rocketbar, and determine the remaining
+    // width for the minimized statusbar.
+    var innerWidth = window.innerWidth;
+    var element = app && app.appChrome && app.appChrome.element &&
+      app.appChrome.element.querySelector('.urlbar .title');
 
-  resumeUpdate: function sb_resumeUpdate() {
-    this._paused = false;
+    if (!element) {
+      this._minimizedStatusBarWidth = innerWidth;
+    }
+
+    this._minimizedStatusBarWidth = innerWidth -
+      element.getBoundingClientRect().width;
     this._updateIconVisibility();
   },
 
+  _paused: 0,
+  pauseUpdate: function sb_pauseUpdate() {
+    this._paused++;
+  },
+
+  resumeUpdate: function sb_resumeUpdate() {
+    this._paused--;
+    this._updateIconVisibility();
+  },
+
+  isPaused: function sb_isPaused() {
+    return this._paused > 0;
+  },
+
   _updateIconVisibility: function sb_updateIconVisibility() {
-    if (this._paused) {
+    if (this._paused !== 0) {
       return;
     }
 
@@ -590,7 +637,7 @@ var StatusBar = {
     this.cloneStatusbar();
 
     var maximizedStatusBarWidth = this._getMaximizedStatusBarWidth();
-    var minimizedStatusBarWidth = this._getMinimizedStatusBarWidth();
+    var minimizedStatusBarWidth = this._minimizedStatusBarWidth;
 
     this.PRIORITIES.forEach(function sb_updateIconVisibilityForEach(iconObj) {
       var iconId = iconObj[0];
@@ -659,12 +706,17 @@ var StatusBar = {
   },
 
   panelHandler: function sb_panelHandler(evt) {
-    var app = AppWindowManager.getActiveApp().getTopMostWindow();
+    var app = System.currentApp.getTopMostWindow();
     var chromeBar = app.element.querySelector('.chrome');
     var titleBar = app.element.querySelector('.titlebar');
 
     // Do not forward events if FTU is running
     if (FtuLauncher.isFtuRunning()) {
+      return;
+    }
+
+    // Do not forward events is utility-tray is active
+    if (UtilityTray.active) {
       return;
     }
 
