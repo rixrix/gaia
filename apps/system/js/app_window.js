@@ -415,7 +415,8 @@
     }
 
     // If the app is the currently displayed app, switch to the homescreen
-    if (this.isActive() && !this.isHomescreen) {
+    if (this.isActive() && this.getBottomMostWindow().isActive() &&
+        !this.isHomescreen) {
 
       var fallbackTimeout;
       var onClosed = function() {
@@ -692,7 +693,7 @@
      'mozbrowsertitlechange', 'mozbrowserlocationchange',
      'mozbrowsermetachange', 'mozbrowsericonchange', 'mozbrowserasyncscroll',
      '_localized', '_swipein', '_swipeout', '_kill_suspended',
-     '_orientationchange', '_focus', '_hidewindow', '_sheetdisplayed',
+     '_orientationchange', '_focus', '_blur',  '_hidewindow', '_sheetdisplayed',
      '_sheetsgestureend', '_cardviewbeforeshow', '_cardviewclosed',
      '_closed', '_shrinkingstart', '_shrinkingstop'];
 
@@ -1695,6 +1696,9 @@
     if (!this.element) {
       return;
     }
+    if (this._screenshotBlob) {
+      this._showScreenshotOverlay();
+    }
 
     this.debug('requesting to open');
     if (!this.loaded ||
@@ -2056,6 +2060,14 @@
     }
   };
 
+  AppWindow.prototype._handle__blur = function() {
+    var win = this;
+    while (win.frontWindow && win.frontWindow.isActive()) {
+      win = win.frontWindow;
+    }
+    win.blur();
+  };
+
   AppWindow.prototype._handle__focus = function() {
     var win = this;
     while (win.frontWindow && win.frontWindow.isActive()) {
@@ -2133,7 +2145,9 @@
         attention.parentWindow.instanceID === this.instanceID) {
       return;
     }
-
+    if (!this.isActive()) {
+      return;
+    }
     this.setVisible(false);
   };
   exports.AppWindow = AppWindow;

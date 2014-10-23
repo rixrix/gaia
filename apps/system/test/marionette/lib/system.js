@@ -11,7 +11,16 @@ module.exports = System;
 System.URL = 'app://system.gaiamobile.org/manifest.webapp';
 
 System.Selector = Object.freeze({
+  screen: '#screen',
   activeHomescreenFrame: '#homescreen.appWindow.active',
+  appAuthDialog: '.appWindow.active .authentication-dialog.visible',
+  // XXX: Gaia-header covers the back button, so you can't tap on it.
+  // This is a problem with gaia-header, so instead we return the gaia-header,
+  // And manually tap on the expected coordinate.
+  appAuthDialogCancel: '.appWindow.active .authentication-dialog.visible ' +
+    'gaia-header',
+  appAuthDialogLogin: '.appWindow.active .authentication-dialog.visible ' +
+    'button.authentication-dialog-http-authentication-ok',
   appWindow: '.appWindow',
   appTitlebar: '.appWindow.active .titlebar',
   appUrlbar: '.appWindow.active .title',
@@ -25,19 +34,24 @@ System.Selector = Object.freeze({
   appChromeReloadButton: '.appWindow.active .controls .reload-button',
   appChromeWindowsButton: '.appWindow.active .controls .windows-button',
   browserWindow: '.appWindow.browser',
+  imeMenu: '.ime-menu',
   sleepMenuContainer: '#sleep-menu-container',
   softwareButtons: '#software-buttons',
   softwareHome: '#software-home-button',
   softwareHomeFullscreen: '#fullscreen-software-home-button',
   softwareHomeFullscreenLayout: '#software-buttons-fullscreen-layout',
   statusbar: '#statusbar',
+  statusbarMaximizedWrapper: '#statusbar-maximized-wrapper',
+  statusbarMinimizedWrapper: '#statusbar-minimized-wrapper',
   statusbarLabel: '#statusbar-label',
   systemBanner: '.banner.generic-dialog',
   topPanel: '#top-panel',
   leftPanel: '#left-panel',
   rightPanel: '#right-panel',
   utilityTray: '#utility-tray',
-  visibleForm: '#screen > form.visible'
+  visibleForm: '#screen > form.visible',
+  cancelActivity: 'form.visible button[data-action="cancel"]',
+  nfcIcon: '#statusbar-nfc'
 });
 
 System.prototype = {
@@ -49,6 +63,25 @@ System.prototype = {
 
   getBrowserWindows: function() {
     return this.client.findElements(System.Selector.browserWindow);
+  },
+
+  get activeHomescreenFrame() {
+    var homescreen = System.Selector.activeHomescreenFrame;
+    return this.client.helper.waitForElement(homescreen);
+  },
+
+  get appAuthDialog() {
+    return this.client.helper.waitForElement(System.Selector.appAuthDialog);
+  },
+
+  get appAuthDialogCancel() {
+    return this.client.helper.waitForElement(
+      System.Selector.appAuthDialogCancel);
+  },
+
+  get appAuthDialogLogin() {
+    return this.client.helper.waitForElement(
+      System.Selector.appAuthDialogLogin);
   },
 
   get appTitlebar() {
@@ -99,6 +132,10 @@ System.prototype = {
       System.Selector.appChromeReloadButton);
   },
 
+  get imeMenu() {
+    return this.client.helper.waitForElement(System.Selector.imeMenu);
+  },
+
   get sleepMenuContainer() {
     return this.client.helper.waitForElement(
       System.Selector.sleepMenuContainer);
@@ -123,6 +160,14 @@ System.prototype = {
 
   get statusbar() {
     return this.client.findElement(System.Selector.statusbar);
+  },
+
+  get statusbarMaximizedWrapper() {
+    return this.client.findElement(System.Selector.statusbarMaximizedWrapper);
+  },
+
+  get statusbarMinimizedWrapper() {
+    return this.client.findElement(System.Selector.statusbarMinimizedWrapper);
   },
 
   get statusbarLabel() {
@@ -151,6 +196,18 @@ System.prototype = {
 
   get visibleForm() {
     return this.client.findElement(System.Selector.visibleForm);
+  },
+
+  get cancelActivity() {
+    return this.client.findElement(System.Selector.cancelActivity);
+  },
+
+  get screenSize() {
+    return this.client.findElement(System.Selector.screen).size();
+  },
+
+  get nfcIcon() {
+    return this.client.findElement(System.Selector.nfcIcon);
   },
 
   getAppIframe: function(url) {
@@ -239,5 +296,13 @@ System.prototype = {
         return options[i];
       }
     }
+  },
+
+  sendSystemUpdateNotification: function() {
+    this.client.executeScript(function() {
+      var UpdateManager = window.wrappedJSObject.UpdateManager;
+      UpdateManager.addToUpdatesQueue(UpdateManager.systemUpdatable);
+      UpdateManager.displayNotificationAndToaster();
+    });
   }
 };

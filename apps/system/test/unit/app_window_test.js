@@ -875,20 +875,48 @@ suite('system/AppWindow', function() {
       assert.isTrue(callback.calledOnce);
     });
 
-  test('ready', function() {
-    var app1 = new AppWindow(fakeAppConfig1);
-    var callback = this.sinon.spy();
-    var stubWaitForNextPaint = this.sinon.stub(app1, 'waitForNextPaint');
-    var stubEnsureFullRepaint = this.sinon.stub(app1, 'tryWaitForFullRepaint');
+  suite('ready', function() {
+    var app1;
+    var stubWaitForNextPaint;
+    var stubEnsureFullRepaint;
+    var showScreenshotOverlay;
 
-    app1.loaded = true;
-    app1.ready(callback);
-    assert.isTrue(stubEnsureFullRepaint.called);
-    assert.isTrue(stubWaitForNextPaint.called);
-    stubEnsureFullRepaint.getCall(0).args[0]();
-    stubWaitForNextPaint.getCall(0).args[0]();
-    this.sinon.clock.tick(0);
-    assert.isTrue(callback.calledOnce);
+    setup(function() {
+      app1 = new AppWindow(fakeAppConfig1);
+      stubWaitForNextPaint = this.sinon.stub(app1, 'waitForNextPaint');
+      stubEnsureFullRepaint = this.sinon.stub(app1, 'tryWaitForFullRepaint');
+      showScreenshotOverlay = this.sinon.stub(app1, '_showScreenshotOverlay');
+      app1.loaded = true;
+    });
+
+    teardown(function() {
+      stubWaitForNextPaint.restore();
+      stubEnsureFullRepaint.restore();
+      showScreenshotOverlay.restore();
+    });
+
+    test('Full repaint', function() {
+      var callback = this.sinon.spy();
+      app1.ready(callback);
+      assert.isTrue(stubEnsureFullRepaint.called);
+      assert.isTrue(stubWaitForNextPaint.called);
+      stubEnsureFullRepaint.getCall(0).args[0]();
+      stubWaitForNextPaint.getCall(0).args[0]();
+      this.sinon.clock.tick(0);
+      assert.isTrue(callback.calledOnce);
+    });
+
+    test('Call _showScreenshotOverlay', function() {
+      app1._screenshotBlob = 'fakeBlob';
+      app1.ready();
+      assert.isTrue(showScreenshotOverlay.calledOnce);
+    });
+
+    test('Do not call _showScreenshotOverlay', function() {
+      app1._screenshotBlob = null;
+      app1.ready();
+      assert.isFalse(showScreenshotOverlay.called);
+    });
   });
 
   suite('Browser Mixin', function() {
@@ -1247,17 +1275,52 @@ suite('system/AppWindow', function() {
       requireClose: function() {}
     };
 
-    test('Hidewindow event', function() {
-      var app1 = new AppWindow(fakeAppConfig1);
-      var attention = new AppWindow(fakeAppConfig2);
-      var stubSetVisible = this.sinon.stub(app1, 'setVisible');
-      attention.parentWindow = app1;
+    suite('Hidewindow event', function() {
+      var app1;
+      var attention;
+      var stubSetVisible;
+      var stubIsActive;
 
-      app1.handleEvent({
-        type: '_hidewindow',
-        detail: attention
+      setup(function() {
+        app1 = new AppWindow(fakeAppConfig1);
+        attention = new AppWindow(fakeAppConfig2);
+        stubSetVisible = this.sinon.stub(app1, 'setVisible');
+        stubIsActive = this.sinon.stub(app1, 'isActive');
+        stubIsActive.returns(true);
       });
-      assert.isFalse(stubSetVisible.called);
+
+      teardown(function() {
+        stubSetVisible.restore();
+        stubIsActive.restore();
+      });
+
+      test('Set window as invisible', function() {
+        app1.handleEvent({
+          type: '_hidewindow',
+          detail: attention
+        });
+        assert.isTrue(stubSetVisible.calledWith(false));
+      });
+
+      test('Do not set the visibility ' +
+           'when attention window show up on its opener', function() {
+        attention.parentWindow = app1;
+        app1.handleEvent({
+          type: '_hidewindow',
+          detail: attention
+        });
+        assert.isFalse(stubSetVisible.called);
+      });
+
+      test('Do not set the visibility ' +
+           'when the window is not active', function() {
+        stubIsActive.returns(false);
+        app1.handleEvent({
+          type: '_hidewindow',
+          detail: attention
+        });
+        assert.isFalse(stubSetVisible.called);
+      });
     });
 
     test('ActivityDone event', function() {
@@ -1484,6 +1547,23 @@ suite('system/AppWindow', function() {
       assert.ok(destroyStub.calledOnce);
     });
 
+    test('Destroy active window directly when the bottom app is not Active',
+      function() {
+        var app = new AppWindow(fakeAppConfig1);
+
+        // Ensure that the closed event does not trigger the destroy method.
+        this.sinon.stub(app, 'getBottomMostWindow').returns({
+          isActive: function() {
+            return false;
+          }
+        });
+
+        var destroyStub = this.sinon.stub(app, 'destroy');
+
+        app.kill();
+        assert.ok(destroyStub.calledOnce);
+      });
+
     test('Load event', function() {
       var app1 = new AppWindow(fakeAppConfig1);
 
@@ -1597,6 +1677,28 @@ suite('system/AppWindow', function() {
       assert.isTrue(spyManifestHelper.calledWithExactly(app1.manifest));
       assert.isTrue(stubPublish.calledWithExactly('namechanged'));
       assert.equal(app1.identificationTitle.textContent, 'Mon Application');
+    });
+
+    test('focus event', function() {
+      var app1 = new AppWindow(fakeAppConfig1);
+      var stubFocus = this.sinon.stub(app1, 'focus');
+
+      app1.handleEvent({
+        type: '_focus'
+      });
+
+      assert.isTrue(stubFocus.calledOnce);
+    });
+
+    test('blur event', function() {
+      var app1 = new AppWindow(fakeAppConfig1);
+      var stubBlur = this.sinon.stub(app1, 'blur');
+
+      app1.handleEvent({
+        type: '_blur'
+      });
+
+      assert.isTrue(stubBlur.calledOnce);
     });
 
     test('Titilechange event', function() {

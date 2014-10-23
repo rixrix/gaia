@@ -19,6 +19,10 @@
 }
 */
 
+#screen > #system-update-splash {
+  z-index: 65538;
+}
+
 /* Home gesture panel should not be covered by any element of system */
 #screen > #bottom-panel.visible {
   z-index: 2147483647;
@@ -156,6 +160,13 @@
   z-index: 4098 !important;
 }
 
+/* Need raise zIndex when in normal mode, or the animation would be hidden */
+#screen > [data-z-index-level="app"] > .lockScreenInputWindow
+{
+  /* Or the .appWindow one would be first adopted.*/
+  z-index: 2049 !important;
+}
+
 #screen > [data-z-index-level="app"] > .lockScreenWindow.active
 {
   /* Or the .appWindow one would be first adopted.*/
@@ -202,6 +213,7 @@
 #screen > [data-z-index-level="app"] > .appWindow.active > [data-z-index-level="value-selector"],
 #screen > [data-z-index-level="ime-layout-dialog"],
 #screen > [data-z-index-level="app-install-dialog"],
+#screen > [data-z-index-level="app-uninstall-dialog"],
 #screen > [data-z-index-level="updates-download-dialog"],
 #screen > [data-z-index-level="updates-viaDataConnection-dialog"],
 #screen > [data-z-index-level="emergency-callback-dialog"],
@@ -243,7 +255,7 @@
 }
 
 #screen > [data-z-index-level="app"] > .appWindow.active:not(.homescreen):not(.attentionWindow),
-#screen > [data-z-index-level="app"] > .appWindow:not(.homescreen):not(.lockScreenWindow):not(.attentionWindow),
+#screen > [data-z-index-level="app"] > .appWindow:not(.homescreen):not(.lockScreenWindow):not(.attentionWindow):not(.lockScreenInputWindow),
 #screen > [data-z-index-level="app"] > .appWindow.will-become-active {
   z-index: 6;
 }
@@ -286,6 +298,7 @@
 #screen:-moz-full-screen-ancestor > [data-z-index-level="cards-view"],
 #screen:-moz-full-screen-ancestor > [data-z-index-level="permission-screen"],
 #screen:-moz-full-screen-ancestor > [data-z-index-level="app-install-dialog"],
+#screen:-moz-full-screen-ancestor > [data-z-index-level="app-uninstall-dialog"],
 #screen:-moz-full-screen-ancestor > [data-z-index-level="ime-layout-dialog"],
 #screen:-moz-full-screen-ancestor > [data-z-index-level="fullscreen-software-home-button"],
 #screen:-moz-full-screen-ancestor > [data-z-index-level="gesture-panel"],
