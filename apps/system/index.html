@@ -77,7 +77,6 @@
     <!-- System -->
     <link rel="stylesheet" type="text/css" href="style/system/system.css">
     <link rel="stylesheet" type="text/css" href="style/system/keyboard.css">
-    <link rel="stylesheet" type="text/css" href="style/sound_manager/sound_manager.css">
     <link rel="stylesheet" type="text/css" href="style/ime_menu.css">
 
     <!-- Include shared building blocks -->
@@ -157,6 +156,7 @@
     <!-- Accessibility -->
     <link rel="stylesheet" type="text/css" href="style/accessibility/accessibility.css">
     <script defer src="js/accessibility.js"></script>
+    <script defer src="js/accessibility_quicknav_menu.js"></script>
 
     <!-- Sleep Menu -->
     <link rel="stylesheet" type="text/css" href="style/sleep_menu/sleep_menu.css">
@@ -889,9 +889,6 @@
       -->
       </div>
 
-      <div id="app-uninstall-dialog" data-z-index-level="app-uninstall-dialog" style="margin: 1000">
-      </div>
-
       <form id="app-install-dialog" class='app-install-dialog generic-dialog'
             data-type="confirm" role="dialog"
             data-z-index-level="app-install-dialog">
@@ -1201,6 +1198,9 @@
         </div>
 
         <div id="volume" class="vibration">
+          <style scoped>
+            @import url("style/sound_manager/sound_manager.css");
+          </style>
           <span class="channel-type"></span>
           <section>
             <div class="active"></div>

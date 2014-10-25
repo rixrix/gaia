@@ -1274,6 +1274,7 @@
       return entry;
     }
 
+    console.warn('mozL10n: A non-existing entity requested: ' + id);
     error.call(this, new L10nError(id + ' not found', id));
     return null;
   }
@@ -1791,6 +1792,11 @@
     }
   }
 
+  var allowedHtmlAttrs = {
+    'ariaLabel': 'aria-label',
+    'ariaValueText': 'aria-valuetext'
+  };
+
   function translateElement(element) {
     if (!this.ctx.isReady) {
       if (!pendingElements) {
@@ -1823,8 +1829,8 @@
 
     for (var key in entity.attrs) {
       var attr = entity.attrs[key];
-      if (key === 'ariaLabel') {
-        element.setAttribute('aria-label', attr);
+      if (allowedHtmlAttrs.hasOwnProperty(key)) {
+        element.setAttribute(allowedHtmlAttrs[key], attr);
       } else if (key === 'innerHTML') {
         // XXX: to be removed once bug 994357 lands
         element.innerHTML = attr;
