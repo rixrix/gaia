@@ -1,6 +1,4 @@
-/* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
-/* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
-
+/* global LockScreenClockWidget */
 'use strict';
 
 /**
@@ -142,16 +140,15 @@
     * Max value for handle swiper up
     */
     HANDLE_MAX: 70,
-
-    /**
-     * Object used for handling the clock UI element, wraps all related timers
-     */
-    clock: new window.Clock()
+    chargingStatus: new window.LockScreenChargingStatus()
   };  // -- LockScreen.prototype --
 
   LockScreen.prototype.handleEvent =
   function ls_handleEvent(evt) {
     switch (evt.type) {
+      case 'lockscreen-appopened':
+        this.lock();
+        break;
       case 'lockscreen-notification-request-activate-unlock':
         this._activateUnlock();
         break;
@@ -177,30 +174,23 @@
           if (this.camera && this.camera.firstElementChild) {
             this.camera.removeChild(this.camera.firstElementChild);
           }
-
-          // Stop refreshing the clock when the screen is turned off.
-          this.clock.stop();
+          this.chargingStatus.stop();
         } else {
           this._passCodeTimeoutCheck = this.checkPassCodeTimeout();
-
-          // Resume refreshing the clock when the screen is turned on.
-          this.clock.start(this.refreshClock.bind(this));
+          if (!this.lockScreenClockWidget) {
+            this.createClockWidget();
+          }
+          this.chargingStatus.start();
         }
         // No matter turn on or off from screen timeout or poweroff,
         // all secure apps would be hidden.
         this.dispatchEvent('secure-killapps');
-        this.lockIfEnabled(true);
+        if (this.enabled) {
+          this.overlayLocked(true);
+        }
         break;
 
       case 'click':
-        if (0 === evt.mozInputSource &&
-            (this.areaUnlock === evt.target ||
-             this.areaCamera === evt.target)) {
-          evt.preventDefault();
-          this.handleIconClick(evt.target);
-          break;
-        }
-
         if (this.altCameraButton === evt.target) {
           this.handleIconClick(evt.target);
           break;
@@ -271,6 +261,7 @@
         this._notifyUnlockingStop();
         break;
       case 'lockscreenslide-activate-left':
+      case 'holdcamera':
         this._activateCamera();
         break;
       case 'lockscreenslide-activate-right':
@@ -319,15 +310,6 @@
           break;
         }
         break;
-      case 'timeformatchange':
-        if (!this.l10nready) {
-          return;
-        }
-        this.timeFormat = window.navigator.mozHour12 ?
-          navigator.mozL10n.get('shortTimeFormat12') :
-          navigator.mozL10n.get('shortTimeFormat24');
-        this.refreshClock(new Date());
-        break;
     }
   };  // -- LockScreen#handleEvent --
 
@@ -357,8 +339,11 @@
       document.getElementById('notifications-lockscreen-container');
 
     this.lockIfEnabled(true);
-    this.writeSetting(this.enabled);
     this.initUnlockerEvents();
+
+    // This component won't know when the it get locked unless
+    // it listens to this event.
+    window.addEventListener('lockscreen-appopened', this);
 
     /* Status changes */
     window.addEventListener(
@@ -370,8 +355,6 @@
 
     /* Gesture */
     this.area.addEventListener('touchstart', this);
-    this.areaCamera.addEventListener('click', this);
-    this.areaUnlock.addEventListener('click', this);
     this.altCameraButton.addEventListener('click', this);
     this.iconContainer.addEventListener('touchstart', this);
 
@@ -383,7 +366,8 @@
 
     /* blocking holdhome and prevent Cards View from show up */
     window.addEventListener('holdhome', this, true);
-    window.addEventListener('ftuopen', this);
+    window.addEventListener('ftudone', this);
+    window.addEventListener('moztimechange', this);
     window.addEventListener('timeformatchange', this);
 
     /* media playback widget */
@@ -393,6 +377,9 @@
     // listen to media playback events to adjust notification container height
     window.addEventListener('iac-mediacomms', this);
     window.addEventListener('appterminated', this);
+
+    // Listen to event to start the Camera app
+    window.addEventListener('holdcamera', this);
 
     window.SettingsListener.observe('lockscreen.enabled', true,
       (function(value) {
@@ -459,7 +446,7 @@
     if(this._checkGenerateMaskedBackgroundColor()){
       this._generateMaskedBackgroundColor();
     }
-    // Do not refresh clock here: L10n may not ready.
+    this.chargingStatus.start();
   };
 
   LockScreen.prototype.initUnlockerEvents =
@@ -493,11 +480,7 @@
   LockScreen.prototype.l10nInit =
   function ls_l10nInit() {
     this.l10nready = true;
-    // The default one is 12 hour.
-    this.timeFormat = window.navigator.mozHour12 ?
-      navigator.mozL10n.get('shortTimeFormat12') :
-      navigator.mozL10n.get('shortTimeFormat24');
-    this.refreshClock(new Date());
+    this.createClockWidget();
 
     // mobile connection state on lock screen.
     // It needs L10n too. But it's not a re-entrable function,
@@ -635,7 +618,7 @@
     var url =
           window.parent.location.href.replace('system', name),
         manifestUrl =
-          url.replace(/(\/)*(index.html)*$/, '/manifest.webapp');
+          url.replace(/(\/)*(index.html#?)*$/, '/manifest.webapp');
 
     url += '#secure';
     window.dispatchEvent(new window.CustomEvent('secure-launchapp',
@@ -667,14 +650,14 @@
     var wasAlreadyUnlocked = !this.locked;
     this.locked = false;
 
-    // The lockscreen will be hidden, stop refreshing the clock.
-    this.clock.stop();
+    this.chargingStatus.stop();
 
     if (wasAlreadyUnlocked) {
       return;
     }
 
-    this.writeSetting(false);
+    this.lockScreenClockWidget.stop().destroy();
+    delete this.lockScreenClockWidget;
 
     if (this.unlockSoundEnabled) {
       var unlockAudio = new Audio('/resources/sounds/unlock.opus');
@@ -700,26 +683,33 @@
     this._unlockingMessage = {};
   };
 
+  LockScreen.prototype.overlayLocked = function(instant) {
+    this.overlay.focus();
+    this.overlay.classList.toggle('no-transition', instant);
+    this.overlay.classList.remove('unlocked');
+    this.overlay.hidden = false;
+
+  };
+
   LockScreen.prototype.lock =
   function ls_lock(instant) {
     var wasAlreadyLocked = this.locked;
     this.locked = true;
 
-    this.overlay.focus();
-    this.overlay.classList.toggle('no-transition', instant);
-
-    this.overlay.classList.remove('unlocked');
-    this.overlay.hidden = false;
-
     if (!wasAlreadyLocked) {
+      this.overlayLocked();
+      // Because 'document.hidden' changes slower than this,
+      // so if we depend on that it would create the widget
+      // while the screen is off.
+      if (!this.mainScreen.classList.contains('screenoff')) {
+        this.createClockWidget();
+      }
       if (document.mozFullScreen) {
         document.mozCancelFullScreen();
       }
-
       // Any changes made to this,
       // also need to be reflected in apps/system/js/storage.js
       this.dispatchEvent('secure-modeon');
-      this.writeSetting(true);
 
       if(this._checkGenerateMaskedBackgroundColor()){
         this._generateMaskedBackgroundColor();
@@ -753,7 +743,6 @@
 
         delete this.overlay.dataset.passcodeStatus;
         this.passCodeEntered = '';
-        this.updatePassCodeUI();
         break;
 
       case 'main':
@@ -817,21 +806,6 @@
           this._switchingPanel = false;
         }).bind(this));
     }).bind(this));
-  };
-
-  LockScreen.prototype.refreshClock =
-  function ls_refreshClock(now) {
-    if (!this.locked) {
-      return;
-    }
-
-    var f = new navigator.mozL10n.DateTimeFormat();
-    var _ = navigator.mozL10n.get;
-
-    var timeFormat = this.timeFormat.replace('%p', '<span>%p</span>');
-    var dateFormat = _('longDateFormat');
-    this.clockTime.innerHTML = f.localeFormat(now, timeFormat);
-    this.date.textContent = f.localeFormat(now, dateFormat);
   };
 
   /**
@@ -1022,17 +996,6 @@
     window.dispatchEvent(evt);
   };
 
-  LockScreen.prototype.writeSetting =
-  function ls_writeSetting(value) {
-    if (!window.navigator.mozSettings) {
-      return;
-    }
-
-    window.SettingsListener.getSettingsLock().set({
-      'lockscreen.locked': value
-    });
-  };
-
   /**
    * @param {boolean} switcher - true if mode is on, false if off.
    */
@@ -1112,8 +1075,15 @@
       this.passCodeError = 0;
       this.kPassCodeErrorTimeout = 500;
       this.kPassCodeErrorCounter = 0;
-      this.unlock();
+      // delegate the unlocking function call to panel state.
     };
+
+  LockScreen.prototype.createClockWidget = function() {
+    // Adapt a state-widget in the curret architecture.
+    this.lockScreenClockWidget = new LockScreenClockWidget(
+      document.getElementById('lockscreen-clock-widget'));
+    this.lockScreenClockWidget.start();
+  };
 
   /** @exports LockScreen */
   exports.LockScreen = LockScreen;

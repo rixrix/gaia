@@ -1,9 +1,8 @@
 <element name="sound" extends="section">
   <template>
 
-    <gaia-header>
-      <a href="#root" data-icon="back"><span data-l10n-id="back">Back</span></a>
-      <h1 data-l10n-id="sound-header"> Sound </h1>
+    <gaia-header action="back" data-href="#root">
+      <h1 data-l10n-id="sound-header"></h1>
     </gaia-header>
 
     <div>
@@ -23,18 +22,21 @@
         <li class="sound-setting">
           <label class="range-icons volume media">
             <p data-l10n-id="media-sound">Media</p>
+            <span data-icon="sound-max"></span>
             <input type="range" step="1" min="0" value="8" max="15">
           </label>
         </li>
         <li class="sound-setting">
           <label class="range-icons volume notification">
             <p data-l10n-id="ringtone-and-notification-sound">Ringtones & Notifications</p>
+            <span data-icon="call-ringing"></span>
             <input type="range" step="1" min="0" value="8" max="15">
           </label>
         </li>
         <li class="sound-setting">
           <label class="range-icons volume alarm">
             <p data-l10n-id="alarm-sound">Alarm</p>
+            <span data-icon="alarm-clock"></span>
             <input type="range" step="1" min="0" value="8" max="15">
           </label>
         </li>
@@ -45,12 +47,16 @@
       </header>
       <ul>
         <li class="ringer" hidden>
-          <p data-l10n-id="ringtones">Ringtones</p>
-          <button class="ring-tone-selection icon icon-view"></button>
+          <a class="menu-item ring-tone-selection" href="#">
+            <span data-l10n-id="ringtones">Ringtones</span>
+            <small class="desc"></small>
+          </a>
         </li>
         <li id="alerts">
-          <p data-l10n-id="alerts">Alerts</p>
-          <button class="alert-tone-selection icon icon-view"></button>
+          <a class="menu-item alert-tone-selection" href="#">
+            <span data-l10n-id="alerts">Alerts</span>
+            <small class="desc"></small>
+          </a>
         </li>
         <li class="touch-tone-selector" hidden>
           <a data-l10n-id="touch-tones">Audible touch tones</a>
@@ -62,8 +68,9 @@
           </span>
         </li>
         <li id="manage-tones">
-          <a class="manage-tones-button menu-item"
-             data-l10n-id="manage-tones"></a>
+          <a class="manage-tones-button menu-item" href="#">
+            <span data-l10n-id="manage-tones">Manage Tones</span>
+          </a>
         </li>
       </ul>
 

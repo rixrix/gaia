@@ -27,11 +27,17 @@ requireApp('settings/js/vendor/alameda.js', (function() {
       'shared/tz_select': {
         exports: 'tzSelect'
       },
+      'shared/template': {
+        exports: 'Template'
+      },
       'unit/mock_async_storage': {
         exports: 'MockAsyncStorage'
       },
       'unit/mock_load_json': {
         exports: 'MockLoadJSON'
+      },
+      'unit/mock_settings': {
+        exports: 'MockSettings'
       },
       'unit/mock_settings_cache': {
         exports: 'MockSettingsCache'
@@ -50,6 +56,9 @@ requireApp('settings/js/vendor/alameda.js', (function() {
       },
       'unit/mock_airplane_mode_helper': {
         exports: 'MockAirplaneModeHelper'
+      },
+      'unit/mock_apps_cache': {
+        exports: 'MockAppsCache'
       },
       'shared_mocks/mock_navigator_moz_settings': {
         exports: 'MockNavigatorSettings'
@@ -102,6 +111,27 @@ requireApp('settings/js/vendor/alameda.js', (function() {
       },
       'shared_mocks/mock_mobile_operator': {
         exports: 'MockMobileOperator'
+      },
+      'shared_mocks/mock_sim_settings_helper': {
+        exports: 'MockSimSettingsHelper'
+      },
+      'shared_mocks/mock_navigator_moz_set_message_handler': {
+        exports: 'MockNavigatormozSetMessageHandler'
+      },
+      'shared_mocks/mock_performance_testing_helper': {
+        exports: 'MockPerformanceTestingHelper'
+      },
+      'shared_mocks/mock_screen_layout': {
+        exports: 'MockScreenLayout'
+      },
+      'shared_mocks/mock_stk_helper': {
+        exports: 'MockSTKHelper'
+      },
+      'shared_mocks/mock_dump': {
+        exports: 'MockDump'
+      },
+      'shared_mocks/mock_navigator_moz_icc_manager' : {
+        exports: 'MockNavigatorMozIccManager'
       }
     },
     modules: [

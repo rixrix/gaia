@@ -12,10 +12,14 @@ function configureLoader() {
       sharedtest: '/shared/test/unit',
       test: '/test/unit'
     },
+    map: {
+      '*': {
+        'ext/page': 'test/support/fake_page'
+      }
+    },
     shim: {
       'ext/caldav': { exports: 'Caldav' },
       'ext/ical': { exports: 'ICAL' },
-      'shared/accessibility_helper': { exports: 'AccessibilityHelper' },
       'shared/gesture_detector': { exports: 'GestureDetector' },
       'shared/notification_helper': { exports: 'NotificationHelper' },
       'sharedtest/mocks/mock_l10n': { exports: 'MockL10n' }
@@ -32,11 +36,17 @@ function l10nLink(href) {
   document.head.appendChild(link);
 }
 
-function manifestLink(href) {
-  var link = document.createElement('link');
-  link.setAttribute('href', href);
-  link.setAttribute('rel', 'manifest');
-  document.head.appendChild(link);
+function l10nMeta(defaultLanguage, availableLanguages) {
+  var metaDL = document.createElement('meta');
+  metaDL.setAttribute('name', 'defaultLanguage');
+  metaDL.setAttribute('content', defaultLanguage);
+
+  var metaAL = document.createElement('meta');
+  metaAL.setAttribute('name', 'availableLanguages');
+  metaAL.setAttribute('content', availableLanguages.join(', '));
+
+  document.head.appendChild(metaDL);
+  document.head.appendChild(metaAL);
 }
 
 function loadL10n() {
@@ -67,6 +77,8 @@ function loadApp() {
     requirejs([
       'app',
       'db',
+      'ext/chai',
+      'ext/chai-as-promised',
       'provider/provider_factory',
       'router',
       'test/support/fake_page',
@@ -81,18 +93,55 @@ window.testAgentRuntime.testLoader = function(path) {
   return require('/js/ext/alameda.js')
   .then(() => {
     if (!configured) {
+      console.log('Will configure requirejs...');
       configureLoader();
     }
 
     console.log('Will setup app localization...');
     l10nLink('/locales/calendar.{locale}.properties');
     l10nLink('/shared/locales/date/date.{locale}.properties');
-    manifestLink('/manifest.webapp');
+    l10nMeta('en-US', ['en-US']);
     return loadL10n();
   })
   .then(() => {
     console.log('Will load app...');
     return loadApp();
+  })
+  .then(() => {
+    console.log('Will override default chai...');
+    var chai = requirejs('ext/chai');
+    var chaiAsPromised = requirejs('ext/chai-as-promised');
+    chai.use(chaiAsPromised);
+
+    /* chai extensions */
+
+    // XXX: this is a lame way to do this
+    // in reality we need to fix the above upstream
+    // and leverage new chai 1x methods
+    chai.assert.hasProperties = function (given, props, msg) {
+      msg = (typeof(msg) === 'undefined') ? '' : msg + ': ';
+
+      if (props instanceof Array) {
+        props.forEach(function(prop) {
+          assert.ok(
+            (prop in given),
+            msg + 'given should have "' + prop + '" property'
+          );
+        });
+      } else {
+        for (var key in props) {
+          assert.deepEqual(
+            given[key],
+            props[key],
+            msg + ' property equality for (' + key + ') '
+          );
+        }
+      }
+    };
+
+    window.assert = chai.assert;
+    window.expect = chai.expect;
+    window.should = chai.Should();
   })
   .then(() => {
     return new Promise((accept) => {
@@ -205,8 +254,6 @@ window.testSupport.calendar = {
 
       eventStore.persist(this.event, trans);
       app.store('Busytime').persist(this.busytime, trans);
-
-      app.timeController.cacheBusytime(this.busytime);
     });
   },
 
@@ -272,9 +319,7 @@ window.testSupport.calendar = {
   app: function() {
     var Db = requirejs('db');
     var MockProvider = requirejs('test/support/mock_provider');
-    var Router = requirejs('router');
     var app = requirejs('app');
-    var fakePage = requirejs('test/support/fake_page');
     var providerFactory = requirejs('provider/provider_factory');
 
     if (app._pendingManger) {
@@ -289,7 +334,7 @@ window.testSupport.calendar = {
     }
 
     var db = new Db('b2g-test-calendar');
-    app.configure(db, new Router(fakePage));
+    app.configure(db);
     providerFactory.app = app;
     providerFactory.providers.Mock = new MockProvider({ app: app });
     app.dateFormat = navigator.mozL10n.DateTimeFormat();
@@ -347,32 +392,6 @@ window.testSupport.calendar = {
     });
 
     return object;
-  }
-};
-
-/* chai extensions */
-
-// XXX: this is a lame way to do this
-// in reality we need to fix the above upstream
-// and leverage new chai 1x methods
-assert.hasProperties = function chai_hasProperties(given, props, msg) {
-  msg = (typeof(msg) === 'undefined') ? '' : msg + ': ';
-
-  if (props instanceof Array) {
-    props.forEach(function(prop) {
-      assert.ok(
-        (prop in given),
-        msg + 'given should have "' + prop + '" property'
-      );
-    });
-  } else {
-    for (var key in props) {
-      assert.deepEqual(
-        given[key],
-        props[key],
-        msg + ' property equality for (' + key + ') '
-      );
-    }
   }
 };
 

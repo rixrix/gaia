@@ -1,6 +1,10 @@
 /* -*- Mode: js; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
+/* global
+  PAGE_INDEX_DEFAULT
+ */
+
 'use strict';
 
 /*
@@ -51,6 +55,7 @@
     click: click,
     select: select,
     dismissSuggestions: dismissSuggestions,
+    setLayoutPage: setLayoutPage,
     setLayoutParams: setLayoutParams,
     setLanguage: setLanguage,
     selectionChange: selectionChange,
@@ -63,6 +68,9 @@
 
   // If defined, this is a worker thread that produces word suggestions for us
   var worker;
+
+  // PromiseStorage for access to indexedDB for user dictionary
+  var dbStore;
 
   // These variables are the input method's state. Most of them are
   // passed to the activate() method or are derived in that method.
@@ -86,6 +94,8 @@
   var revertFrom;         // Revert away from this on backspace
   var disableOnRevert;    // Do we disable auto correction when reverting?
   var correctionDisabled; // Temporarily diabled after reverting?
+  var currentPage;        // The current layout page
+  var gotNormalKey;       // Indicate if we got a normal key in an alt page
 
   // Terminate the worker when the keyboard is inactive for this long.
   var WORKER_TIMEOUT = 30000;  // 30 seconds of idle time
@@ -106,7 +116,8 @@
   var COLON = 58;
   var SEMICOLON = 59;
   var ATPERSAND = 64;
-
+  var DOUBLEQUOTE = 34;
+  var CLOSEPAREN = 41;
   // all whitespace characters
   // U+FFFC place holder is added to white space
   // this enables suggestions
@@ -129,6 +140,12 @@
   // an autocorrect action
   var MIN_LENGTH_MISMATCH_THRESHOLD = 5;
 
+  var USER_DICT_DB_NAME = 'UserDictLatin';
+
+  // Predictions from user dictionary need to have weight larger than this in
+  // order to take precedence over built-in dictionary predictions
+  var USER_DICT_PREDICTION_BUMP_THRESHOLD = 1;
+
   /*
    * Since inputContext.sendKey is an async fuction that will return a promise,
    * and we need to update the current state (capitalization, input value)
@@ -137,10 +154,20 @@
    */
   var inputSequencePromise = Promise.resolve();
 
+  // If this promise exists, that means we are
+  // currently loading the new dictionary.
+  var getDictionaryDataPromise = null;
+
+  // The promise for getting user dictionary from PromiseStorage
+  var getUserDictionaryBlobPromise = null;
+
   // keyboard.js calls this to pass us the interface object we need
   // to communicate with it
   function init(interfaceObject) {
     keyboard = interfaceObject;
+
+    dbStore = new PromiseStorage(USER_DICT_DB_NAME);
+    dbStore.start();
   }
 
   // Given the type property and inputmode attribute of a form element,
@@ -211,6 +238,8 @@
     revertTo = revertFrom = '';
     disableOnRevert = false;
     correctionDisabled = false;
+    currentPage = PAGE_INDEX_DEFAULT;
+    gotNormalKey = false;
 
     // The keyboard isn't idle anymore, so clear the timer
     if (idleTimer) {
@@ -220,6 +249,28 @@
 
     // Start off with the correct capitalization
     updateCapitalization();
+
+    // Get user dictionary blob.
+    getUserDictionaryBlobPromise =
+      dbStore.getItem('dictblob').then(function(blob) {
+      // If worker is there, tell it we have a (new) user dictionary blob,
+      // since setLanguage() may be bypassed due to language not changing.
+      // (User dictionary is langauge-neutral.)
+      // Do pass the argument if blob is undefined (no user dictionary words),
+      // Since the worker needs to know if user has deleted all words.
+      // Worker will bypass UserDictionary prediction as needed.
+      // |undefined| can't be Transferred so we'll need to check for it.
+      if (worker) {
+        worker.postMessage({
+          cmd: 'setUserDictionary',
+          args: [blob]
+        }, typeof blob === 'undefined' ? undefined : [blob]);
+      }
+
+      return blob;
+    })['catch'](function(e) {
+      e && console.error('latin.js', e);
+    });
 
     // If we are going to offer suggestions, ensure that there is a worker
     // thread created and that it knows what language we're using, and then
@@ -257,12 +308,51 @@
     if ((!worker && !newlang) || (worker && newlang === language))
       return;
 
+    language = newlang;
+
     // If there is a worker, and no new language, then kill the worker
     if (worker && !newlang) {
       terminateWorker();
       return;
     }
 
+    // Built-in dictionary is a hard requirement, i.e. if it is undefined, we
+    // reset ourselves.
+    // User dictionary is not a hard requirement. We swallow any abnormal
+    // situation there at activate(), to make sure Promise.all() doesn't fail
+    // on its rejection.
+    getDictionaryDataPromise = Promise.all([
+      keyboard.getData('dictionaries/' + newlang + '.dict'),
+      getUserDictionaryBlobPromise
+    ]);
+
+    getDictionaryDataPromise
+      .then(function(values) {
+        getDictionaryDataPromise = null;
+
+        var builtInDict = values[0];
+        var userDict = values[1];
+
+        if (!builtInDict) {
+          console.error(
+            'latin.js: dictionary is specified but can\'t be loaded.');
+          language = undefined;
+
+          terminateWorker();
+          return;
+        }
+
+        setLanguageSync(newlang, builtInDict, userDict);
+      })['catch'](function(e) { // workaround gjslint error
+        e && console.error('latin.js', e);
+
+        getDictionaryDataPromise = null;
+        language = undefined;
+        terminateWorker();
+      })['catch'](function(e) { e && console.error(e); });
+  }
+
+  function setLanguageSync(newlang, dictData, userDict) {
     // If we get here, then we have to create a worker and set its language
     // or change the language of an existing worker.
     if (!worker) {
@@ -293,17 +383,22 @@
       };
     }
 
-    // Tell the worker what language we're using. They may cause it to
-    // load or reload its dictionary.
-    language = newlang;  // Remember the new language
-    worker.postMessage({ cmd: 'setLanguage', args: [language]});
+    // Tell the worker what language we're using and also pass the dictionary
+    // data.
+    // |undefined| can't be Transferred so we'll need to check for it.
+    worker.postMessage({
+      cmd: 'setLanguage',
+      args: [language, dictData, userDict]
+    }, typeof userDict === 'undefined' ? [dictData] : [dictData, userDict]);
 
     // And now that we've changed the language, ask for new suggestions
     updateSuggestions();
   }
 
   function displaysCandidates() {
-    return !!(suggesting && worker);
+    // If we are suggesting for the language,
+    // we should always display the condidate panel.
+    return !!(suggesting && language);
   }
 
   /*
@@ -388,6 +483,8 @@
             case COMMA:
             case COLON:
             case SEMICOLON:
+            case DOUBLEQUOTE:
+            case CLOSEPAREN:
             // These keys may trigger word or punctuation corrections
             handler = handleCorrections(keyCode);
           correctionDisabled = false;
@@ -417,8 +514,18 @@
       updateSuggestions(repeat);
 
       // Exit symbol layout mode after space or return key is pressed.
-      if (keyCode === SPACE || keyCode === RETURN || keyCode === ATPERSAND) {
+      var isNonDefaultPage = currentPage !== PAGE_INDEX_DEFAULT;
+      var isSpace = keyCode === SPACE;
+      var isReturn = keyCode === RETURN;
+      var isAtpersand = keyCode === ATPERSAND;
+      var keyResetLayout = (isSpace && gotNormalKey) || isReturn || isAtpersand;
+      if (isNonDefaultPage && keyResetLayout) {
         keyboard.setLayoutPage(PAGE_INDEX_DEFAULT);
+      }
+
+      // Next space key will change the layout
+      if (keyCode !== SPACE) {
+        gotNormalKey = true;
       }
 
       lastSpaceTimestamp = (keyCode === SPACE) ? Date.now() : 0;
@@ -642,6 +749,12 @@
       }
     }
 
+    // We show no more than 3 suggestions; but we'd like to keep at least one
+    // suggestion from user dictionary, if its weight is less than 1. However,
+    // that suggestion can still be dropped if it matches the user input.
+    // User dictionary suggestion is identified by suggestion[2] === true.
+
+    var inputDefinedInUserDict = false;
     // See if the user's input is a valid word on the list of suggestions
     var inputIsSuggestion = false;
     var inputWeight = 0;
@@ -649,6 +762,7 @@
     for (inputIndex = 0; inputIndex < suggestions.length; inputIndex++) {
       if (suggestions[inputIndex][0] === input) {
         inputIsSuggestion = true;
+        inputDefinedInUserDict = !!suggestions[inputIndex][2];
         inputWeight = suggestions[inputIndex][1];
         break;
       }
@@ -667,8 +781,46 @@
     }
 
     // Make sure we have no more than three words
-    if (suggestions.length > 3)
-      suggestions.length = 3;
+    if (suggestions.length > 3) {
+      // We want to keep at least a user dictionary word here (if the heighest
+      // user dictionary word has weight >= 1).
+      // If for the first two suggestions we see one from user dictionary, or
+      // if we dropped a user dict suggestion above (matching user input),
+      // we can just append the third suggestion.
+      // Otherwise, we'll need to search through the remaining suggestions and
+      // append the first user-dict suggestion we find (that has weight >= 1);
+      // if we can't find any suitable user-dict suggestions, we just append
+      // the third suggestion (i.e. whatever that has the largest frequency
+      // in the remaining suggestions).
+
+      var trimmedSuggestions = suggestions.slice(0, 2);
+
+      var userDictionaryWordEncountered =
+        inputDefinedInUserDict ||
+        (!!suggestions[0][2]) ||
+        (!!suggestions[1][2]);
+
+      if (userDictionaryWordEncountered) {
+        trimmedSuggestions.push(suggestions[2]);
+      } else {
+        userDictionaryWordEncountered =
+          suggestions.slice(2).some(function(suggestion) {
+            if (suggestion[2] && suggestion[1] >=
+                USER_DICT_PREDICTION_BUMP_THRESHOLD) {
+              trimmedSuggestions.push(suggestion);
+              return true;
+            } else {
+              return false;
+            }
+          });
+
+        if (!userDictionaryWordEncountered) {
+          trimmedSuggestions.push(suggestions[2]);
+        }
+      }
+
+      suggestions = trimmedSuggestions;
+    }
 
     // Now get an array of just the suggested words
     var words = suggestions.map(function(x) { return x[0]; });
@@ -769,6 +921,16 @@
     revertTo = revertFrom = '';
     disableOnRevert = false;
     correctionDisabled = false;
+  }
+
+  function setLayoutPage(page) {
+    if (currentPage === PAGE_INDEX_DEFAULT) {
+      // we don't want to reset gotNormalKey if we're already in an alternative
+      // layout.
+      gotNormalKey = false;
+    }
+
+    currentPage = page;
   }
 
   function setLayoutParams(params) {
@@ -887,10 +1049,21 @@
     if (!suggesting && !correcting)
       return;
 
-    // If we don't have a worker (probably because no dictionary) then
-    // do nothing
-    if (!worker)
+    // If there is no dictionary language, do nothing
+    if (!language)
       return;
+
+    // If we are still loading the dictionary, do nothing
+    if (getDictionaryDataPromise)
+      return;
+
+    // This shouldn't happen -- we previously allow layout to be selected
+    // without the dictionary, but the build script has since prevent that.
+    if (!worker) {
+      console.error('latin.js: called updateSuggestions() w/o an worker.');
+
+      return;
+    }
 
     // If we deferred suggestions because of a key repeat, clear that timer
     if (suggestionsTimer) {

@@ -1,4 +1,3 @@
-/*global: MockNavigatorMozTelephony*/
 'use strict';
 
 suite('Sound > ToneManager', function() {
@@ -119,7 +118,8 @@ suite('Sound > ToneManager', function() {
         pickType: 'alerttone',
         settingsKey: 'notification.ringtone',
         allowNone: true,
-        button: dom
+        button: dom,
+        desc: dom
       };
       result = {
         l10nID: '',
@@ -225,7 +225,8 @@ suite('Sound > ToneManager', function() {
         pickType: 'alerttone',
         settingsKey: 'notification.ringtone',
         allowNone: true,
-        button: dom
+        button: dom,
+        desc: dom
       };
       this.sinon.spy(toneManager, '_setRingtone');
       this.sinon.stub(toneManager, '_renderTone');
@@ -291,7 +292,8 @@ suite('Sound > ToneManager', function() {
         pickType: 'alerttone',
         settingsKey: 'notification.ringtone',
         allowNone: true, // Allow "None" as a choice for alert tones.
-        button: dom
+        button: dom,
+        desc: dom
       }];
       this.sinon.spy(mockSettingsCache, 'getSettings');
       this.sinon.spy(mockForwardLock, 'getKey');

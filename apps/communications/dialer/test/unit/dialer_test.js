@@ -1,20 +1,21 @@
 'use strict';
 
-/* global CallHandler, MocksHelper, MockLazyL10n, MockNavigatormozApps,
+/* global CallHandler, MocksHelper, MockL10n, MockNavigatormozApps,
    MockNavigatorMozIccManager, MockNavigatormozSetMessageHandler,
-   NavbarManager, Notification, MockKeypadManager, MockVoicemail,
+   NavbarManager, NotificationHelper, MockKeypadManager, MockVoicemail,
    MockCallLog, MockCallLogDBManager, MockNavigatorWakeLock, MockMmiManager,
-   MockSuggestionBar, LazyLoader, AccessibilityHelper, MockSimSettingsHelper,
-   MockSimPicker, MockTelephonyHelper, MockSettingsListener */
+   LazyLoader, AccessibilityHelper, MockSimSettingsHelper, MockTelephonyHelper,
+   MockSettingsListener, CustomElementsHelper  */
 
 require(
   '/shared/test/unit/mocks/mock_navigator_moz_set_message_handler.js'
 );
+require('/shared/test/unit/mocks/mock_l10n.js');
+require('/shared/test/unit/mocks/mock_lazy_loader.js');
 require('/shared/test/unit/mocks/mock_navigator_wake_lock.js');
 require('/shared/test/unit/mocks/mock_voicemail.js');
 require('/dialer/test/unit/mock_call_log.js');
 require('/dialer/test/unit/mock_call_log_db_manager.js');
-require('/dialer/test/unit/mock_lazy_loader.js');
 require('/dialer/test/unit/mock_mmi_manager.js');
 require('/dialer/test/unit/mock_suggestion_bar.js');
 
@@ -24,15 +25,15 @@ require('/shared/test/unit/mocks/mock_navigator_moz_icc_manager.js');
 require('/shared/test/unit/mocks/mock_notification.js');
 require('/shared/test/unit/mocks/mock_notification_helper.js');
 require('/shared/test/unit/mocks/mock_settings_listener.js');
-require('/shared/test/unit/mocks/mock_sim_picker.js');
 require('/shared/test/unit/mocks/mock_sim_settings_helper.js');
 require('/shared/test/unit/mocks/dialer/mock_contacts.js');
-require('/shared/test/unit/mocks/dialer/mock_lazy_l10n.js');
 require('/shared/test/unit/mocks/dialer/mock_keypad.js');
 require('/shared/test/unit/mocks/dialer/mock_telephony_helper.js');
 require('/shared/test/unit/mocks/dialer/mock_tone_player.js');
 require('/shared/test/unit/mocks/dialer/mock_utils.js');
 require('/shared/test/unit/mocks/mock_moz_activity.js');
+require(
+  '/shared/test/unit/mocks/elements/gaia_sim_picker/mock_gaia_sim_picker.js');
 
 require('/dialer/js/dialer.js');
 
@@ -42,7 +43,7 @@ var mocksHelperForDialer = new MocksHelper([
   'Contacts',
   'CallLog',
   'CallLogDBManager',
-  'LazyL10n',
+  'GaiaSimPicker',
   'LazyLoader',
   'KeypadManager',
   'MmiManager',
@@ -50,13 +51,16 @@ var mocksHelperForDialer = new MocksHelper([
   'Notification',
   'NotificationHelper',
   'SettingsListener',
-  'SimPicker',
   'SimSettingsHelper',
   'SuggestionBar',
   'Utils',
   'TonePlayer',
   'Voicemail'
 ]).init();
+
+var customElementsForNavbarManager = new CustomElementsHelper([
+  'GaiaSimPicker'
+]);
 
 suite('navigation bar', function() {
   var domContactsIframe;
@@ -67,10 +71,20 @@ suite('navigation bar', function() {
 
   var realMozApps;
   var realMozIccManager;
+  var realMozL10n;
   var realSetMessageHandler;
   var realWakeLock;
 
   mocksHelperForDialer.attachTestHelpers();
+
+  suiteSetup(function() {
+    realMozL10n = navigator.mozL10n;
+    navigator.mozL10n = MockL10n;
+  });
+
+  suiteTeardown(function() {
+    navigator.mozL10n = realMozL10n;
+  });
 
   setup(function() {
     realMozApps = navigator.mozApps;
@@ -109,6 +123,8 @@ suite('navigation bar', function() {
 
     CallHandler.init();
     NavbarManager.init();
+
+    customElementsForNavbarManager.resolve();
   });
 
   teardown(function() {
@@ -134,7 +150,7 @@ suite('navigation bar', function() {
       var callEndedData;
 
       setup(function() {
-        this.sinon.spy(window, 'Notification');
+        this.sinon.spy(NotificationHelper, 'send');
         MockNavigatorMozIccManager.addIcc('12345', {'cardState': 'ready'});
         callEndedData = {
           number: '123',
@@ -151,13 +167,9 @@ suite('navigation bar', function() {
           MockNavigatormozApps.mTriggerLastRequestSuccess();
         });
 
-        test('should localize the notification message', function() {
-          assert.deepEqual(MockLazyL10n.keys['from-contact'],
-            {contact: 'test name'});
-        });
-
-        test('should send the notification', function() {
-          sinon.assert.calledWith(Notification, 'missedCall');
+        test('should send the notification with a localized message',
+        function() {
+          sinon.assert.calledWith(NotificationHelper.send, 'missedCall');
         });
       });
 
@@ -171,14 +183,12 @@ suite('navigation bar', function() {
           MockNavigatormozApps.mTriggerLastRequestSuccess();
         });
 
-        test('should localize the notification message', function() {
-          assert.deepEqual(MockLazyL10n.keys['from-contact'],
-            {contact: 'test name'});
-        });
-
-        test('should send the notification', function() {
-          sinon.assert.calledWith(Notification, 'missedCallMultiSims');
-          assert.deepEqual(MockLazyL10n.keys.missedCallMultiSims, {n: 2});
+        test('should send the notification with a localized message',
+        function() {
+          sinon.assert.calledWithMatch(NotificationHelper.send, {
+            id: 'missedCallMultiSims',
+            args: { n: 2 }
+          });
         });
       });
 
@@ -399,11 +409,11 @@ suite('navigation bar', function() {
     });
 
     suite('> Receiving a ussd', function() {
-      function triggerSysMsg(serviceId, sessionEnded) {
+      function triggerSysMsg(serviceId, session) {
         MockNavigatormozSetMessageHandler.mTrigger('ussd-received', {
           message: 'testing',
-          sessionEnded: (sessionEnded !== undefined) ? sessionEnded : true,
-          serviceId: (serviceId !== undefined) ? serviceId : 0
+          session: session || null,
+          serviceId: serviceId || 0
         });
       }
 
@@ -430,7 +440,7 @@ suite('navigation bar', function() {
         this.sinon.spy(MockMmiManager, 'handleMMIReceived');
         triggerSysMsg();
         sinon.assert.calledWith(MockMmiManager.handleMMIReceived,
-                                'testing', true);
+                                'testing', null, 0);
       });
 
       suite('when the app is visible', function() {
@@ -458,7 +468,7 @@ suite('navigation bar', function() {
 
         test('should send a notification for unsolicited messages', function() {
             this.sinon.spy(MockMmiManager, 'sendNotification');
-            triggerSysMsg(0, true);
+            triggerSysMsg(0, null);
             sinon.assert.calledOnce(MockMmiManager.sendNotification);
             var wakeLock = MockNavigatorWakeLock.mLastWakeLock;
             assert.isTrue(wakeLock.released);
@@ -523,10 +533,7 @@ suite('navigation bar', function() {
 
     suite('> Dialing MMI codes', function() {
       setup(function (){
-        this.sinon.stub(MockMmiManager, 'isMMI').returns(true);
-        this.sinon.spy(MockMmiManager, 'send');
-        this.sinon.spy(MockKeypadManager, 'updatePhoneNumber');
-        this.sinon.spy(MockSuggestionBar, 'clear');
+        this.sinon.spy(MockTelephonyHelper, 'call');
       });
 
       [0, 1].forEach(function(cardIndex) {
@@ -534,20 +541,17 @@ suite('navigation bar', function() {
           var number = '*123#';
           CallHandler.call(number, cardIndex);
 
-          sinon.assert.calledWith(MockMmiManager.send, number, cardIndex);
-          sinon.assert.calledWithMatch(MockKeypadManager.updatePhoneNumber, '');
-          sinon.assert.calledOnce(MockSuggestionBar.clear);
+          sinon.assert.calledWith(MockTelephonyHelper.call, number, cardIndex);
         });
 
         test('> Requesting the IMEI codes on SIM ' + cardIndex, function() {
+          this.sinon.stub(MockMmiManager, 'isImei').returns(true);
           this.sinon.spy(MockMmiManager, 'showImei');
 
           CallHandler.call('*#06#', cardIndex);
 
           sinon.assert.calledOnce(MockMmiManager.showImei);
-          sinon.assert.notCalled(MockMmiManager.send);
-          sinon.assert.calledWithMatch(MockKeypadManager.updatePhoneNumber, '');
-          sinon.assert.calledOnce(MockSuggestionBar.clear);
+          sinon.assert.notCalled(MockTelephonyHelper.call);
         });
       });
     });
@@ -578,11 +582,21 @@ suite('navigation bar', function() {
 
       var getGroupAtPositionStub;
       var callSpy;
+      var simPicker;
 
       setup(function() {
         getGroupAtPositionStub =
           this.sinon.stub(MockCallLogDBManager, 'getGroupAtPosition');
         callSpy = this.sinon.stub(CallHandler, 'call');
+
+        simPicker = document.createElement('gaia-sim-picker');
+        simPicker.id = 'sim-picker';
+        document.body.appendChild(simPicker);
+        customElementsForNavbarManager.resolve();
+      });
+
+      teardown(function() {
+        document.body.removeChild(simPicker);
       });
 
       [0, 1].forEach(function(serviceId) {
@@ -604,9 +618,9 @@ suite('navigation bar', function() {
         });
 
         test('should show SIM picker', function() {
-          this.sinon.spy(MockSimPicker, 'getOrPick');
+          this.sinon.spy(simPicker, 'getOrPick');
           sendCommand('ATD12345');
-          sinon.assert.calledWith(MockSimPicker.getOrPick, serviceId, '12345');
+          sinon.assert.calledWith(simPicker.getOrPick, serviceId, '12345');
         });
 
         test('should show/foreground the dialer', function() {

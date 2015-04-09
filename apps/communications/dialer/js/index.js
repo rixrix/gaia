@@ -1,26 +1,30 @@
-/* globals KeypadManager, NavbarManager, LazyLoader, LazyL10n, CallHandler */
+/* globals KeypadManager, NavbarManager, LazyLoader, CallHandler */
 'use strict';
 
-window.addEventListener('load', function dialerSetup() {
+function onLoadDialer() {
   // Dialer chrome UI and keypad UI is visible and already exists in the DOM
+  window.performance.mark('navigationLoaded');
   window.dispatchEvent(new CustomEvent('moz-chrome-dom-loaded'));
+  window.performance.mark('visuallyLoaded');
   window.dispatchEvent(new CustomEvent('moz-app-visually-complete'));
 
-  window.removeEventListener('load', dialerSetup);
+  window.removeEventListener('load', onLoadDialer);
 
-  KeypadManager.init();
+  /* Tell the audio channel manager that we want to adjust the "notification"
+   * channel when the user presses the volumeup/volumedown buttons. */
+  if (navigator.mozAudioChannelManager) {
+    navigator.mozAudioChannelManager.volumeControlChannel = 'notification';
+  }
+
+  KeypadManager.init(/* oncall */ false);
   // Keypad (app core content) is now bound
+  window.performance.mark('contentInteractive');
   window.dispatchEvent(new CustomEvent('moz-content-interactive'));
 
   NavbarManager.init();
   // Navbar (chrome) events have now been bound
+  window.performance.mark('navigationInteractive');
   window.dispatchEvent(new CustomEvent('moz-chrome-interactive'));
-
-  // Tell audio channel manager that we want to adjust the notification
-  // channel if the user press the volumeup/volumedown buttons in Dialer.
-  if (navigator.mozAudioChannelManager) {
-    navigator.mozAudioChannelManager.volumeControlChannel = 'notification';
-  }
 
   setTimeout(function nextTick() {
     var lazyPanels = ['confirmation-message',
@@ -33,7 +37,7 @@ window.addEventListener('load', function dialerSetup() {
     LazyLoader.load(lazyPanelsElements);
 
     CallHandler.init();
-    LazyL10n.get(function loadLazyFilesSet() {
+    navigator.mozL10n.once(function loadLazyFilesSet() {
       LazyLoader.load([
         '/shared/js/fb/fb_request.js',
         '/shared/js/fb/fb_data_reader.js',
@@ -44,8 +48,11 @@ window.addEventListener('load', function dialerSetup() {
         '/shared/elements/gaia-header/dist/gaia-header.js',
         '/shared/style/edit_mode.css'
       ], function fileSetLoaded() {
+        window.performance.mark('fullyLoaded');
         window.dispatchEvent(new CustomEvent('moz-app-loaded'));
       });
     });
   });
-});
+}
+
+window.addEventListener('load', onLoadDialer);

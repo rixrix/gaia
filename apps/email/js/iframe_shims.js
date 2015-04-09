@@ -1,6 +1,3 @@
-/*jshint browser: true */
-/*global console, define */
-
 define(['shared/js/gesture_detector'], function() {
 
 'use strict';
@@ -18,7 +15,7 @@ var DEFAULT_STYLE_TAG =
   'blockquote {' +
   'margin: 0; ' +
   // so, this is quoting styling, which makes less sense to have in here.
-  'border-left: 0.2rem solid gray;' +
+  '-moz-border-start: 0.2rem solid gray;' +
   // padding-start isn't a thing yet, somehow.
   'padding: 0; -moz-padding-start: 0.5rem; ' +
   '}\n' +
@@ -325,7 +322,8 @@ function createAndInsertIframeForContent(htmlStr, scrollContainer,
     // scrolly, but I wouldn't remove this without some testing...
     'overflow: hidden; ' +
     // When scaling, use the top-left for math sanity.
-    'transform-origin: top left; ' +
+    'transform-origin: top ' +
+    (document.documentElement.dir === 'rtl' ? 'right' : 'left') + '; ' +
     // The iframe does not want to process its own clicks!  that's what
     // bindSanitizedClickHandler is for!
     'pointer-events: none;');
@@ -349,19 +347,18 @@ function createAndInsertIframeForContent(htmlStr, scrollContainer,
   iframe.contentDocument.write(htmlStr);
   iframe.contentDocument.write('</body>');
   iframe.contentDocument.close();
-  var iframeHtml = iframe.contentDocument.documentElement;
   var iframeBody = iframe.contentDocument.body;
 
   // NOTE.  This has gone through some historical iterations here AKA is
   // evolved.  Technically, getBoundingClientRect() may be superior since it can
-  // have fractional parts.  I believe I tried using it with iframeHtml and it
-  // ended up betraying me by reporting clientWidth/clientHeight instead of
-  // scrollWidth, whereas scrollWidth/scrollHeight worked better.  However I was
-  // trying a lot of things; I might just have been confused by some APZ
-  // glitches where panning right would not work immediately after zooming and
-  // you'd have to pan left first in order to pan all the way to the newly
-  // expaned right.  What we know right now is this gives the desired behaviour
-  // sizing behaviour.
+  // have fractional parts.  I believe I tried using it with
+  // iframe.contentDocument.documentElement and it ended up betraying me by
+  // reporting clientWidth/clientHeight instead of scrollWidth, whereas
+  // scrollWidth/scrollHeight worked better.  However I was trying a lot of
+  // things; I might just have been confused by some APZ glitches where panning
+  // right would not work immediately after zooming and you'd have to pan left
+  // first in order to pan all the way to the newly expaned right.  What we know
+  // right now is this gives the desired behaviour sizing behaviour.
   var scrollWidth = iframeBody.scrollWidth;
   var scrollHeight = iframeBody.scrollHeight;
 
@@ -418,8 +415,9 @@ function createAndInsertIframeForContent(htmlStr, scrollContainer,
     // There is nothing to do if we are actually already at this scale level.
     // (Note that there still is something to do if newScale ===
     //  lastRequestedScale, though!)
-    if (newScale === scale)
+    if (newScale === scale) {
       return;
+    }
     lastRequestedScale = newScale;
     lastCenterX = centerX;
     lastCenterY = centerY;
@@ -654,7 +652,7 @@ function bindSanitizedClickHandler(target, clickHandler, topNode, iframe) {
   var root, title, header, attachmentsContainer, msgBodyContainer,
       titleHeight, headerHeight, attachmentsHeight,
       msgBodyMarginTop, msgBodyMarginLeft, attachmentsMarginTop,
-      iframeDoc, inputStyle;
+      iframeDoc, inputStyle, loadBar, loadBarHeight;
   // Tap gesture event for HTML type mail and click event for plain text mail
   if (iframe) {
     root = document.getElementsByClassName('scrollregion-horizontal-too')[0];
@@ -662,6 +660,7 @@ function bindSanitizedClickHandler(target, clickHandler, topNode, iframe) {
     header = document.getElementsByClassName('msg-envelope-bar')[0];
     attachmentsContainer =
       document.getElementsByClassName('msg-attachments-container')[0];
+    loadBar = document.getElementsByClassName('msg-reader-load-infobar')[0];
     msgBodyContainer = document.getElementsByClassName('msg-body-container')[0];
     inputStyle = window.getComputedStyle(msgBodyContainer);
     msgBodyMarginTop = parseInt(inputStyle.marginTop);
@@ -677,6 +676,11 @@ function bindSanitizedClickHandler(target, clickHandler, topNode, iframe) {
     eventType,
     function clicked(event) {
       if (iframe) {
+        // Because the "show (external) images" loadBar could be opened or
+        // closed depending on what the user does relative to this click, get
+        // the client height at the time of click.
+        loadBarHeight = loadBar.clientHeight;
+
         // Because the attachments are updating late,
         // get the client height while clicking iframe.
         attachmentsHeight = attachmentsContainer.clientHeight;
@@ -686,11 +690,42 @@ function bindSanitizedClickHandler(target, clickHandler, topNode, iframe) {
         var dx, dy;
         var transform = iframe.style.transform || 'scale(1)';
         var scale = transform.match(/(\d|\.)+/g)[0];
-        dx = event.detail.clientX + root.scrollLeft - msgBodyMarginLeft;
+
+        // When in rtl mode, scroll is relative to right side, but the
+        // document inside the iframe is ltr based, since it does not set a
+        // document-wide dir setting and instead the DOM content inside the
+        // message manages the dir itself.
+        if (document.dir === 'rtl') {
+          dx = event.detail.clientX - msgBodyMarginLeft +
+               // The scrollLeft is calculated from the right side, with right
+               // being zero and left being a negative value from the *right*
+               // edge of the element. So to get the x value from the left, need
+               // the difference of scrollWidth from scrollLeft (which is a
+               // negative value), and also subtracting out the width of the
+               // element to get the value relative to the *left* side of the
+               // element.
+               root.scrollWidth + root.scrollLeft - root.clientWidth;
+        } else {
+          dx = event.detail.clientX + root.scrollLeft - msgBodyMarginLeft;
+        }
+
         dy = event.detail.clientY + root.scrollTop -
-             titleHeight - headerHeight -
+             titleHeight - headerHeight - loadBarHeight -
              attachmentsHeight - attachmentsMarginTop - msgBodyMarginTop;
+
         node = iframeDoc.elementFromPoint(dx / scale, dy / scale);
+
+        // Uncomment to show a red square on where the code thinks the tap
+        // occurred in the iframe. Useful for debugging.
+        // var temp = iframeDoc.createElement('div');
+        // temp.style.position = 'absolute';
+        // temp.style.overflow = 'hidden';
+        // temp.style.top = ((dy / scale) - 5) + 'px';
+        // temp.style.left = ((dx / scale) - 5) + 'px';
+        // temp.style.width = '10px';
+        // temp.style.height = '10px';
+        // temp.style.backgroundColor = 'red';
+        // iframeDoc.body.appendChild(temp);
       } else {
         node = event.originalTarget;
       }

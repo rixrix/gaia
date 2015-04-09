@@ -1,9 +1,6 @@
 'use strict';
 
-var Home = require(
-  '../../../verticalhome/test/marionette/lib/home2');
 var Rocketbar = require('./lib/rocketbar');
-var System = require('./lib/system');
 
 marionette('Software Home Button - Permission Prompt', function() {
 
@@ -13,26 +10,26 @@ marionette('Software Home Button - Permission Prompt', function() {
       'dom.w3c_touch_events.enabled': 1
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false,
       'software-button.enabled': true
     }
   });
   var home, rocketbar, system;
 
   setup(function() {
-    home = new Home(client);
+    home = client.loader.getAppClass('verticalhome');
     rocketbar = new Rocketbar(client);
-    system = new System(client);
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
     home.waitForLaunch();
     client.switchToFrame();
   });
 
   test('Proper layout for the prompt', function() {
-
-    rocketbar.homescreenFocus();
-    rocketbar.enterText('a');
+    // Execute some JS to open the permission prompt.
+    client.executeScript(function() {
+      navigator.geolocation.getCurrentPosition(
+        function(){});
+    });
 
     function rect(el) {
       return el.getBoundingClientRect();

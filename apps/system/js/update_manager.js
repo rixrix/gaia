@@ -1,3 +1,5 @@
+/* global Service */
+
 'use strict';
 
 /*
@@ -19,7 +21,6 @@ var UpdateManager = {
   _errorTimeout: null,
   _wifiLock: null,
   _systemUpdateDisplayed: false,
-  _dataConnectionWarningEnabled: true,
   _startedDownloadUsingDataConnection: false,
   _settings: null,
   UPDATE_NOTIF_ID: 'update-notification',
@@ -107,6 +108,7 @@ var UpdateManager = {
     window.addEventListener('applicationuninstall', this);
     window.addEventListener('online', this);
     window.addEventListener('offline', this);
+    window.addEventListener('lockscreen-appopened', this);
 
     SettingsListener.observe('gaia.system.checkForUpdates', false,
                              this.checkForUpdates.bind(this));
@@ -116,10 +118,6 @@ var UpdateManager = {
     window.addEventListener('wifi-statuschange', this);
     this.updateWifiStatus();
     this.updateOnlineStatus();
-
-    // Always display the warning after users reboot the phone.
-    this._dataConnectionWarningEnabled = true;
-    this.downloadDialog.dataset.dataConnectionInlineWarning = false;
   },
 
   requestDownloads: function um_requestDownloads(evt) {
@@ -133,8 +131,8 @@ var UpdateManager = {
   },
 
   startDownloads: function um_startDownloads() {
-    this.downloadDialog.classList.remove('visible');
     this.downloadViaDataConnectionDialog.classList.remove('visible');
+    this._closeDownloadDialog();
     UtilityTray.show();
 
     var checkValues = {};
@@ -185,6 +183,11 @@ var UpdateManager = {
   promptOrDownload: function um_promptOrDownload() {
     var self = this;
 
+    if (self.downloadDialog.dataset.online == 'false') {
+      self.showPromptNoConnection();
+      return;
+    }
+
     if (self._wifiAvailable()) {
       self._startedDownloadUsingDataConnection = false;
       self.startDownloads();
@@ -198,9 +201,14 @@ var UpdateManager = {
     // is not forbidden for download
     var conns = window.navigator.mozMobileConnections;
     if (!conns) {
+      // B2G desktop/Mulet
+      if (navigator.onLine) {
+        self.startDownloads();
+        return;
+      }
       console.error('mozMobileConnections is not available we can ' +
                     'not update the phone.');
-      self.showForbiddenDownload();
+      self.showPromptNoConnection();
       return;
     }
 
@@ -240,11 +248,7 @@ var UpdateManager = {
 
       //2G connection
       if (self.connection2G) {
-        if (prioritized) {
-          self.showPromptWifiPrioritized(self.showForbiddenDownload);
-        } else {
-          self.showForbiddenDownload();
-        }
+        self.showForbiddenDownload();
         return;
       }
 
@@ -297,9 +301,26 @@ var UpdateManager = {
     };
 
     var screen = document.getElementById('screen');
+    window.dispatchEvent(new CustomEvent('updatepromptshown'));
 
     CustomDialog
       .show('systemUpdate', 'downloadUpdatesVia2GForbidden3', ok, null, screen)
+      .setAttribute('data-z-index-level', 'system-dialog');
+  },
+
+  showPromptNoConnection: function um_showPromptNoConnection() {
+    //Close any dialog if there is any open
+    CustomDialog.hide();
+    var ok = {
+      title: 'ok',
+      callback: this.cancelPrompt.bind(this)
+    };
+
+    var screen = document.getElementById('screen');
+    window.dispatchEvent(new CustomEvent('updatepromptshown'));
+
+    CustomDialog
+      .show('systemUpdate', 'downloadOfflineWarning2', ok, null, screen)
       .setAttribute('data-z-index-level', 'system-dialog');
   },
 
@@ -371,6 +392,7 @@ var UpdateManager = {
       this.downloadDialogList.appendChild(listItem);
     }, this);
 
+    window.dispatchEvent(new CustomEvent('updatepromptshown'));
     this.downloadDialog.classList.add('visible');
     this.updateDownloadButton();
   },
@@ -397,13 +419,13 @@ var UpdateManager = {
 
   cancelPrompt: function um_cancelPrompt() {
     CustomDialog.hide();
-    this.downloadDialog.classList.remove('visible');
+    this._closeDownloadDialog();
   },
 
   cancelDataConnectionUpdatesPrompt: function um_cancelDCUpdatesPrompt() {
     CustomDialog.hide();
     this.downloadViaDataConnectionDialog.classList.remove('visible');
-    this.downloadDialog.classList.remove('visible');
+    this._closeDownloadDialog();
   },
 
   getWifiPrioritized: function um_getWifiPrioritized() {
@@ -471,9 +493,10 @@ var UpdateManager = {
     var messageL10n = this.connection2G ? 'downloadWifiPrioritizedUsing2G' :
       'downloadWifiPrioritized3';
 
-    this.downloadDialog.classList.remove('visible');
+    this._closeDownloadDialog();
 
     var screen = document.getElementById('screen');
+    window.dispatchEvent(new CustomEvent('updatepromptshown'));
 
     UtilityTray.hide();
     CustomDialog.show(
@@ -495,8 +518,6 @@ var UpdateManager = {
   downloaded: function um_downloaded(udatable) {
     if (this._startedDownloadUsingDataConnection) {
       this._startedDownloadUsingDataConnection = false;
-      this._dataConnectionWarningEnabled = false;
-      this.downloadDialog.dataset.dataConnectionInlineWarning = true;
     }
   },
 
@@ -623,7 +644,7 @@ var UpdateManager = {
 
     if (this.downloadsQueue.length === 1) {
       this._downloading = true;
-      StatusBar.incSystemDownloads();
+      Service.request('incDownloads');
       this._wifiLock = navigator.requestWakeLock('wifi');
 
       this.displayNotificationIfHidden();
@@ -640,7 +661,7 @@ var UpdateManager = {
 
     if (this.downloadsQueue.length === 0) {
       this._downloading = false;
-      StatusBar.decSystemDownloads();
+      Service.request('decDownloads');
       this._downloadedBytes = 0;
       this.checkStatuses();
 
@@ -719,6 +740,11 @@ var UpdateManager = {
       case 'wifi-statuschange':
         this.updateWifiStatus();
         break;
+       case 'lockscreen-appopened':
+        this.downloadViaDataConnectionDialog.classList.remove('visible');
+        this._closeDownloadDialog();
+        CustomDialog.hide();
+        break;
     }
 
     if (evt.type !== 'mozChromeEvent')
@@ -736,12 +762,6 @@ var UpdateManager = {
   updateOnlineStatus: function su_updateOnlineStatus() {
     var online = (navigator && 'onLine' in navigator) ? navigator.onLine : true;
     this.downloadDialog.dataset.online = online;
-
-    if (online) {
-      this.laterButton.classList.remove('full');
-    } else {
-      this.laterButton.classList.add('full');
-    }
   },
 
   _wifiAvailable: function su_wifiAvailable() {
@@ -801,6 +821,7 @@ var UpdateManager = {
           'downloadUpdatesViaDataRoamingConnection');
         _(this.downloadViaDataConnectionMessage,
           'downloadUpdatesViaDataRoamingConnectionMessage');
+        window.dispatchEvent(new CustomEvent('updatepromptshown'));
         this.downloadViaDataConnectionDialog.classList.add('visible');
         return;
       }
@@ -850,6 +871,11 @@ var UpdateManager = {
     var e = Math.floor(Math.log(bytes) / Math.log(1024));
     return (bytes / Math.pow(1024, Math.floor(e))).toFixed(2) + ' ' +
       _(units[e]);
+  },
+
+  _closeDownloadDialog: function um_closeDownloadDialog() {
+    window.dispatchEvent(new CustomEvent('updateprompthidden'));
+    this.downloadDialog.classList.remove('visible');
   }
 };
 

@@ -1,4 +1,5 @@
 'use strict';
+/* global __dirname */
 
 marionette('Find My Device lock >', function() {
   var assert = require('assert');
@@ -9,10 +10,10 @@ marionette('Find My Device lock >', function() {
     prefs: {
       'dom.inter-app-communication-api.enabled': true
     },
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
-    },
+    apps: {
+      'test-findmydevice.gaiamobile.org':
+        __dirname + '/fixtures/test-findmydevice',
+    }
   });
 
   setup(function() {
@@ -70,17 +71,17 @@ marionette('Find My Device lock >', function() {
 
     // now unlock the screen and re-lock it, the message should disappear
     client.executeScript(function() {
-      window.wrappedJSObject.System.request('unlock');
+      window.wrappedJSObject.Service.request('unlock');
     });
 
     client.waitFor(function() {
       return client.executeScript(function() {
-        return !window.wrappedJSObject.System.locked;
+        return !window.wrappedJSObject.Service.locked;
       });
     });
 
     client.executeScript(function() {
-      window.wrappedJSObject.System.request('lock');
+      window.wrappedJSObject.Service.request('lock');
     });
 
     // XXX: After we make LockScreen as an iframe or app, this should be the

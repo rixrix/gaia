@@ -9,9 +9,9 @@ var frames = $('frames');
 // reused when we pan to the next or previous photo: next becomes
 // current, current becomes previous etc.  See nextFile() and
 // previousFile().  Note also that the Frame object is not a DOM
-// element.  Use currentFrame.container to refer to the div
+// element.  Use currentFrame.container to refer to the section
 // element. The frame constructor creates an <img> element, a <video>
-// element, and video player controls within the div, and you can refer to
+// element, and video player controls within the section, and you can refer to
 // those as currentFrame.image and currentFrame.video.player and
 // currentFrame.video.controls.
 var maxImageSize = CONFIG_MAX_IMAGE_PIXEL_SIZE;
@@ -44,10 +44,13 @@ fullscreenButtons.delete.onclick = deleteSingleItem;
 
 // Clicking the Edit button while viewing a photo switches to edit mode
 fullscreenButtons.edit.onclick = function() {
-  loader.load(['js/ImageEditor.js', 'shared/js/media/crop_resize_rotate.js'],
-              function() {
-                editPhotoIfCardNotFull(currentFileIndex);
-              });
+  LazyLoader.load(['js/ImageEditor.js',
+                   'js/image_processor_thread.js',
+                   'shared/js/media/crop_resize_rotate.js',
+                   'shared/style/action_menu.css'
+                  ], function() {
+                    editPhotoIfCardNotFull(currentFileIndex);
+                  });
 };
 
 // In fullscreen mode, the share button shares the current item
@@ -55,10 +58,10 @@ fullscreenButtons.share.onclick = shareSingleItem;
 
 // Clicking the information button will display information about the photo.
 fullscreenButtons.info.onclick = function() {
-  loader.load(['js/info.js', 'shared/style/confirm.css', 'style/info.css'],
-              function() {
-                showFileInformation(files[currentFileIndex]);
-              });
+  LazyLoader.load(['js/info.js', 'shared/style/confirm.css', 'style/info.css'],
+                  function() {
+                    showFileInformation(files[currentFileIndex]);
+                  });
 };
 
 // Use the GestureDetector.js library to handle gestures.
@@ -71,6 +74,7 @@ frames.addEventListener('dbltap', dblTapHandler);
 frames.addEventListener('pan', panHandler);
 frames.addEventListener('swipe', swipeHandler);
 frames.addEventListener('transform', transformHandler);
+frames.addEventListener('wheel', wheelHandler);
 
 currentFrame.video.onfullscreentap =
   previousFrame.video.onfullscreentap =
@@ -133,24 +137,27 @@ function deleteSingleItem() {
     msg = 'delete-photo?';
   }
   // We need to disable NFC sharing when showing delete confirmation dialog
-  setNFCSharing(false);
+  NFC.unshare();
 
   Dialogs.confirm({
     messageId: msg,
     cancelId: 'cancel',
     confirmId: 'delete',
-    danger: true
+    danger: true,
+    bodyClass: 'showing-dialog'
   }, function() { // onSuccess
-    // disable delete and share button to prevent operations while delete item
+    // disable delete, edit and share button to prevent
+    // operations while delete item
     fullscreenButtons.delete.classList.add('disabled');
     fullscreenButtons.share.classList.add('disabled');
+    fullscreenButtons.edit.classList.add('disabled');
 
     deleteFile(currentFileIndex);
     // Enable NFC sharing when done deleting and returns to fullscreen view
-    setNFCSharing(true);
+    NFC.share(getCurrentFile);
   }, function() { // onCancel
     // Enable NFC sharing when cancels delete and returns to fullscreen view
-    setNFCSharing(true);
+    NFC.share(getCurrentFile);
   });
 }
 
@@ -176,8 +183,8 @@ function shareSingleItem() {
       // This is only tricky case. If we are sharing an image that uses
       // EXIF orientation for correct display, rotate it before sharing
       // so that the recieving app doesn't have to know about EXIF
-      loader.load(['shared/js/media/crop_resize_rotate.js'],
-                  shareModifiedImage);
+      LazyLoader.load(['shared/js/media/crop_resize_rotate.js'],
+                      shareModifiedImage);
     }
   }
 
@@ -185,7 +192,7 @@ function shareSingleItem() {
     var metadata = fileinfo.metadata;
     var button = fullscreenButtons.share;
     button.classList.add('disabled');
-    showSpinner();
+    Spinner.show();
     var maxsize = CONFIG_MAX_PICK_PIXEL_SIZE || CONFIG_MAX_IMAGE_PIXEL_SIZE;
     cropResizeRotate(currentFrame.imageblob, null,
                      maxsize || null, null, metadata,
@@ -195,7 +202,7 @@ function shareSingleItem() {
                          rotatedBlob = currentFrame.imageblob;
                        }
                        ensureFileBackedBlob(rotatedBlob, function(file) {
-                         hideSpinner();
+                         Spinner.hide();
                          button.classList.remove('disabled');
                          share([file], currentFrame.imageblob.name);
                        });
@@ -316,9 +323,17 @@ function panHandler(event) {
   }
 
   // Don't swipe past the end of the last item or past the start of the first
-  if ((currentFileIndex === 0 && frameOffset > 0) ||
-      (currentFileIndex === files.length - 1 && frameOffset < 0)) {
-    frameOffset = 0;
+  // Handle frameOffset reset in RTL when directions are reversed. See 1099458
+  if (navigator.mozL10n.language.direction === 'ltr') {
+    if ((currentFileIndex === 0 && frameOffset > 0) ||
+        (currentFileIndex === files.length - 1 && frameOffset < 0)) {
+      frameOffset = 0;
+    }
+  } else {
+    if ((currentFileIndex === 0 && frameOffset < 0) ||
+        (currentFileIndex === files.length - 1 && frameOffset > 0)) {
+      frameOffset = 0;
+    }
   }
 
   // If the frameOffset has changed since we started, reposition the frames
@@ -388,6 +403,19 @@ function swipeHandler(event) {
   }
 }
 
+// When a screen reader swipes with two fingers
+function wheelHandler(event) {
+  if (event.deltaMode !== event.DOM_DELTA_PAGE || !event.deltaX) {
+    return;
+  }
+
+  if (event.deltaX > 0) {
+    nextFile(150);
+  } else {
+    previousFile(150);
+  }
+}
+
 // We also support pinch-to-zoom
 function transformHandler(e) {
   if (transitioning)
@@ -453,19 +481,32 @@ var FRAME_BORDER_WIDTH = 3;
 var frameOffset = 0; // how far are the frames swiped side-to-side?
 
 function setFramesPosition() {
-  // XXX for RTL languages we should swap next and previous sides
   var width = window.innerWidth + FRAME_BORDER_WIDTH;
   currentFrame.container.style.transform =
     'translateX(' + frameOffset + 'px)';
-  nextFrame.container.style.transform =
-    'translateX(' + (frameOffset + width) + 'px)';
-  previousFrame.container.style.transform =
-    'translateX(' + (frameOffset - width) + 'px)';
+  if (navigator.mozL10n.language.direction === 'ltr') {
+    nextFrame.container.style.transform =
+      'translateX(' + (frameOffset + width) + 'px)';
+    previousFrame.container.style.transform =
+      'translateX(' + (frameOffset - width) + 'px)';
+  }
+  else {
+    // For RTL languages we swap next and previous sides
+    nextFrame.container.style.transform =
+      'translateX(' + (frameOffset - width) + 'px)';
+    previousFrame.container.style.transform =
+      'translateX(' + (frameOffset + width) + 'px)';
+  }
 
   // XXX Bug 1021782 add 'current' class to currentFrame
   nextFrame.container.classList.remove('current');
   previousFrame.container.classList.remove('current');
   currentFrame.container.classList.add('current');
+
+  // Hide adjacent frames from screen reader
+  nextFrame.container.setAttribute('aria-hidden', true);
+  previousFrame.container.setAttribute('aria-hidden', true);
+  currentFrame.container.removeAttribute('aria-hidden');
 }
 
 function resetFramesPosition() {

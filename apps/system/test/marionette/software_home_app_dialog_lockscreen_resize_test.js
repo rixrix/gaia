@@ -1,6 +1,4 @@
 'use strict';
-
-var System = require('./lib/system');
 var LockScreen = require('./lib/lockscreen.js');
 
 var ALERT_APP_URL = 'app://fakeapp.gaiamobile.org';
@@ -13,18 +11,16 @@ marionette('Software Home Button - Dialog Lockscreen Resize', function() {
       'dom.w3c_touch_events.enabled': 1
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false,
       'software-button.enabled': true
     },
     apps: {
-      'fakeapp.gaiamobile.org': __dirname + '/fakeapp'
+      'fakeapp.gaiamobile.org': __dirname + '/../apps/fakeapp'
     }
   });
   var system, lockscreen;
 
   setup(function() {
-    system = new System(client);
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
 
     lockscreen = (new LockScreen()).start(client);

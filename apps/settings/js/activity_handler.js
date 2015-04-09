@@ -66,6 +66,12 @@
           // Apply the filter
           document.body.dataset.filterBy =
             activitySource.data.filterBy || 'all';
+        } else if (targetPanelId === 'call') {
+          var mozMobileConnections = navigator.mozMobileConnections;
+          // If DSDS phone, we have to let users choose simcard
+          if (mozMobileConnections && mozMobileConnections.length > 1) {
+            targetPanelId = 'call-iccs';
+          }
         } else {
           // Mark the desired panel as a dialog
           targetPanel.dataset.dialog = true;
@@ -167,4 +173,4 @@
   };
 
   exports.ActivityHandler = ActivityHandler;
-})(this);
+})(window);

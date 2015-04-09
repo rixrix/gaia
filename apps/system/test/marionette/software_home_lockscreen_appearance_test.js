@@ -1,7 +1,6 @@
 'use strict';
 
 var assert = require('assert');
-var System = require('./lib/system');
 
 marionette('Software Home Button - Lockscreen Appearance', function() {
 
@@ -11,15 +10,14 @@ marionette('Software Home Button - Lockscreen Appearance', function() {
       'dom.w3c_touch_events.enabled': 1
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': true,
-      'software-button.enabled': true
+      'software-button.enabled': true,
+      'lockscreen.enabled': true
     }
   });
   var system;
 
   setup(function() {
-    system = new System(client);
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
   });
 

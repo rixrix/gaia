@@ -2,27 +2,20 @@
 
 marionette('Fullscreen status bar >', function() {
   var assert = require('assert');
-  var Actions = require('marionette-client').Actions;
-  var System = require('./lib/system.js');
 
   var VIDEO_APP = 'app://video.gaiamobile.org';
 
   var client = marionette.client({
     prefs: {
       'dom.w3c_touch_events.enabled': 1
-    },
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
     }
   });
 
-  var sys = new System(client);
-  var actions = new Actions(client);
-
-  var video;
+  var actions, video, sys;
 
   setup(function() {
+    actions = client.loader.getActions();
+    sys = client.loader.getAppClass('system');
     video = sys.waitForLaunch(VIDEO_APP);
     var titlebar = sys.appTitlebar;
     var statusbarHeight = titlebar.size().height;

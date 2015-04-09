@@ -1,9 +1,5 @@
 'use strict';
 
-var Home = require(
-  '../../../verticalhome/test/marionette/lib/home2');
-var System = require('./lib/system');
-
 marionette('Software Home Button - Quick Settings Dialog', function() {
 
   var client = marionette.client({
@@ -12,16 +8,14 @@ marionette('Software Home Button - Quick Settings Dialog', function() {
       'dom.w3c_touch_events.enabled': 1
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false,
       'software-button.enabled': true
     }
   });
   var home, system;
 
   setup(function() {
-    home = new Home(client);
-    system = new System(client);
+    home = client.loader.getAppClass('verticalhome');
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
     home.waitForLaunch();
     client.switchToFrame();

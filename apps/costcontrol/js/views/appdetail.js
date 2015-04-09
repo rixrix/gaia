@@ -72,7 +72,9 @@ var AppDetailView = (function() {
             },
             limits: {
               enabled: settings.dataLimit,
-              value: ChartUtils.getLimitInBytes(settings)
+              value: ChartUtils.getLimitInBytes(settings),
+              dataLimitValue: settings.dataLimitValue,
+              dataLimitUnit: settings.dataLimitUnit
             },
             data: {
               wifi: {
@@ -157,9 +159,9 @@ var AppDetailView = (function() {
           'amount': formattedMobileDataTotal
         });
 
-      els.dataUsedSince.setAttribute('aria-hidden', true);
-      els.dataUsedThisWeek.setAttribute('aria-hidden', true);
-      els.dataUsedThisMonth.setAttribute('aria-hidden', true);
+      els.dataUsedSince.hidden = true;
+      els.dataUsedThisWeek.hidden = true;
+      els.dataUsedThisMonth.hidden = true;
 
       // Update the charts
       prepareChartData(result, function() {
@@ -190,6 +192,7 @@ var AppDetailView = (function() {
 
           model.limits.enabled = settings.dataLimit;
           model.limits.value = ChartUtils.getLimitInBytes(settings);
+          model.limits.dataLimitValue = settings.dataLimitValue;
           model.axis.X.upper = ChartUtils.calculateUpperDate(settings);
           model.axis.X.lower = ChartUtils.calculateLowerDate(settings);
           ChartUtils.expandModel(model);
@@ -197,19 +200,19 @@ var AppDetailView = (function() {
           // Show correct usage text label
           switch (settings.trackingPeriod) {
             case 'weekly':
-              els.dataUsedSince.setAttribute('aria-hidden', true);
-              els.dataUsedThisWeek.removeAttribute('aria-hidden');
-              els.dataUsedThisMonth.setAttribute('aria-hidden', true);
+              els.dataUsedSince.hidden = true;
+              els.dataUsedThisWeek.hidden = false;
+              els.dataUsedThisMonth.hidden = true;
               break;
             case 'monthly':
-              els.dataUsedSince.setAttribute('aria-hidden', true);
-              els.dataUsedThisWeek.setAttribute('aria-hidden', true);
-              els.dataUsedThisMonth.removeAttribute('aria-hidden');
+              els.dataUsedSince.hidden = true;
+              els.dataUsedThisWeek.hidden = true;
+              els.dataUsedThisMonth.hidden = false;
               break;
             default:
-              els.dataUsedSince.removeAttribute('aria-hidden');
-              els.dataUsedThisWeek.setAttribute('aria-hidden', true);
-              els.dataUsedThisMonth.setAttribute('aria-hidden', true);
+              els.dataUsedSince.hidden = false;
+              els.dataUsedThisWeek.hidden = true;
+              els.dataUsedThisMonth.hidden = true;
               break;
           }
 

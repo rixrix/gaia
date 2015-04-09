@@ -1,5 +1,5 @@
 /* jshint loopfunc: true */
-/* global SettingsHelper, SettingsListener, AirplaneMode, applications,
+/* global SettingsHelper, SettingsListener, applications,
           UtilityTray, MozActivity */
 
 'use strict';
@@ -22,6 +22,13 @@
      * @type {Integer}
      */
     WIFI_STATUSCHANGE_TIMEOUT: 2000,
+
+    /**
+     * Indicate setting status of airplane mode
+     * @memberof QuickSettings.prototype
+     * @type {Boolean}
+     */
+    airplaneModeSwitching: false,
 
     /**
      * ID of elements to create references
@@ -95,8 +102,7 @@
      * @memberof QuickSettings.prototype
      */
     monitorDataChange: function() {
-      var conns = window.navigator.mozMobileConnection ||
-        window.navigator.mozMobileConnections;
+      var conns = window.navigator.mozMobileConnections;
 
       if (!conns) {
         // hide data icon without mozMobileConnection object
@@ -171,32 +177,8 @@
      * @memberof QuickSettings.prototype
      */
     monitorBluetoothChange: function() {
-      var self = this;
-      var btFirstSet = true;
-      SettingsListener.observe('bluetooth.enabled', true, function(value) {
-        // check self.bluetooth.dataset.enabled and value are identical
-        if ((self.bluetooth.dataset.enabled && value) ||
-          (self.bluetooth.dataset.enabled === undefined && !value)) {
-          return;
-        }
-
-        if (value) {
-          self.bluetooth.dataset.enabled = 'true';
-        } else {
-          delete self.bluetooth.dataset.enabled;
-        }
-
-        // Set to the initializing state to block user interaction until the
-        // operation completes. (unless we are being called for the first time,
-        // where Bluetooth is already initialize
-        if (!btFirstSet) {
-          self.bluetooth.dataset.initializing = 'true';
-        }
-        btFirstSet = false;
-
-        self.setAccessibilityAttributes(self.bluetooth, 'bluetoothButton');
-      });
-      window.addEventListener('bluetooth-adapter-added', this);
+      // Bluetooth module is loaded after quicksettings.
+      window.addEventListener('bluetooth-enabled', this);
       window.addEventListener('bluetooth-disabled', this);
     },
 
@@ -259,6 +241,8 @@
       SettingsListener.observe('airplaneMode.status', false, function(value) {
         delete self.airplaneMode.dataset.enabling;
         delete self.airplaneMode.dataset.disabling;
+        // reset airplaneModeSwitching
+        self.airplaneModeSwitching = false;
 
         self.data.dataset.airplaneMode = (value === 'enabled');
         switch (value) {
@@ -272,9 +256,11 @@
             break;
           case 'enabling':
             self.airplaneMode.dataset.enabling = 'true';
+            self.airplaneModeSwitching = true;
             break;
           case 'disabling':
             self.airplaneMode.dataset.disabling = 'true';
+            self.airplaneModeSwitching = true;
             break;
         }
         self.setAccessibilityAttributes(self.airplaneMode, 'airplaneMode');
@@ -292,8 +278,10 @@
         case 'click':
           switch (evt.target) {
             case this.wifi:
-              // do nothing if wifi isn't ready
-              if (this.wifi.dataset.initializing) {
+              // do nothing if wifi isn't ready or
+              // airplaneMode is switching to another mode.
+              if (this.wifi.dataset.initializing ||
+                this.airplaneModeSwitching) {
                 return;
               }
               enabled = !!this.wifi.dataset.enabled;
@@ -324,19 +312,32 @@
               break;
 
             case this.bluetooth:
-              // do nothing if bluetooth isn't ready
-              if (this.bluetooth.dataset.initializing) {
+              // do nothing if bluetooth isn't ready or
+              // airplaneMode is switching to another mode.
+              if (this.bluetooth.dataset.initializing ||
+                this.airplaneModeSwitching) {
                 return;
               }
 
               enabled = !!this.bluetooth.dataset.enabled;
-              SettingsListener.getSettingsLock().set({
-                'bluetooth.enabled': !enabled
-              });
+              if (enabled) {
+                window.dispatchEvent(
+                  new CustomEvent('request-disable-bluetooth'));
+              } else {
+                window.dispatchEvent(
+                  new CustomEvent('request-enable-bluetooth'));
+              }
+              this.bluetooth.dataset.initializing = 'true';
               break;
 
             case this.airplaneMode:
-              AirplaneMode.enabled = !this.airplaneMode.dataset.enabled;
+              if (this.airplaneModeSwitching) {
+                return;
+              }
+              var toggle = this.airplaneMode.dataset.enabled ?
+                'request-airplane-mode-disable' :
+                'request-airplane-mode-enable';
+              window.dispatchEvent(new CustomEvent(toggle));
               break;
 
             case this.fullApp:
@@ -356,8 +357,13 @@
           break;
 
           // unlock bluetooth toggle
-        case 'bluetooth-adapter-added':
+        case 'bluetooth-enabled':
+          this.bluetooth.dataset.enabled = 'true';
+          delete this.bluetooth.dataset.initializing;
+          this.setAccessibilityAttributes(this.bluetooth, 'bluetoothButton');
+          break;
         case 'bluetooth-disabled':
+          delete this.bluetooth.dataset.enabled;
           delete this.bluetooth.dataset.initializing;
           this.setAccessibilityAttributes(this.bluetooth, 'bluetoothButton');
           break;

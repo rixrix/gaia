@@ -1,4 +1,4 @@
-/* global SettingsListener, System, SimPinDialog, rocketbar */
+/* global AppWindowManager, SettingsListener, Service */
 'use strict';
 
 (function(exports) {
@@ -149,7 +149,7 @@
         }
         this.app.broadcast('closingtimeout');
       },
-      System.slowTransition ? this.SLOW_TRANSITION_TIMEOUT :
+      AppWindowManager.slowTransition ? this.SLOW_TRANSITION_TIMEOUT :
                               this.CLOSING_TRANSITION_TIMEOUT);
 
       if (!this.app || !this.app.element) {
@@ -171,14 +171,13 @@
     }
   };
 
-
   AppTransitionController.prototype._do_opening =
     function atc_do_opening() {
       this.app.debug('timer to ensure opened does occur.');
       this._openingTimeout = window.setTimeout(function() {
-        this.app.broadcast('openingtimeout');
+        this.app && this.app.broadcast('openingtimeout');
       }.bind(this),
-      System.slowTransition ? this.SLOW_TRANSITION_TIMEOUT :
+      AppWindowManager.slowTransition ? this.SLOW_TRANSITION_TIMEOUT :
                               this.OPENING_TRANSITION_TIMEOUT);
       this._waitingForLoad = false;
       this.app.element.classList.add('transition-opening');
@@ -216,9 +215,12 @@
 
       this.resetTransition();
       /* The AttentionToaster will take care of that for AttentionWindows */
-      if (!this.app.isAttentionWindow && !this.app.isCallscreenWindow) {
+      /* InputWindow & InputWindowManager will take care of visibility of IM */
+      if (!this.app.isAttentionWindow && !this.app.isCallscreenWindow &&
+          !this.app.isInputMethod) {
         this.app.setVisible(false);
       }
+      this.app.setNFCFocus(false);
 
       this.app.element.classList.remove('active');
     };
@@ -247,7 +249,8 @@
 
       // TODO:
       // May have orientation manager to deal with lock orientation request.
-      if (this.app.isHomescreen) {
+      if (this.app.isHomescreen ||
+          this.app.isCallscreenWindow) {
         this.app.setOrientation();
       }
     };
@@ -258,6 +261,7 @@
         return;
       }
 
+      this.app.reviveBrowser();
       this.resetTransition();
       this.app.element.removeAttribute('aria-hidden');
       this.app.show();
@@ -266,7 +270,7 @@
 
       // TODO:
       // May have orientation manager to deal with lock orientation request.
-      if (!this.app.isAttentionWindow && !this.app.isCallscreenWindow) {
+      if (!this.app.isCallscreenWindow) {
         this.app.setOrientation();
       }
       this.focusApp();
@@ -280,16 +284,19 @@
     if (this._shouldFocusApp()) {
       this.app.debug('focusing this app.');
       this.app.focus();
+      this.app.setNFCFocus(true);
     }
   };
 
   AppTransitionController.prototype._shouldFocusApp = function() {
-    // XXX: Remove this after SIMPIN Dialog is refactored.
-    // See https://bugzilla.mozilla.org/show_bug.cgi?id=938979
-    // XXX: Rocketbar losing input focus
-    // See: https://bugzilla.mozilla.org/show_bug.cgi?id=961557
-    return (this._transitionState == 'opened' &&
-            !SimPinDialog.visible && !rocketbar.active);
+    // SearchWindow should not focus itself,
+    // because the input is inside system app.
+    var bottomWindow = this.app.getBottomMostWindow();
+    return (this.app.CLASS_NAME !== 'SearchWindow' &&
+            this._transitionState == 'opened' &&
+            Service.query('getTopMostWindow') === this.app &&
+            Service.query('getTopMostUI').name ===
+            bottomWindow.HIERARCHY_MANAGER);
   };
 
   AppTransitionController.prototype.requireOpen = function(animation) {
@@ -338,7 +345,8 @@
         'slideleft', 'slideright', 'in-from-left', 'out-to-right',
         'will-become-active', 'will-become-inactive',
         'slide-to-top', 'slide-from-top',
-        'slide-to-bottom', 'slide-from-bottom'];
+        'slide-to-bottom', 'slide-from-bottom',
+        'home-from-cardview', 'home-to-cardview'];
 
       classes.forEach(function iterator(cls) {
         this.app.element.classList.remove(cls);
@@ -372,9 +380,12 @@
           break;
         case 'animationend':
           evt.stopPropagation();
+          // Hide touch-blocker when launching animation is ended.
+          this.app.element.classList.remove('transition-opening');
+
           // We decide to drop this event if system is busy loading
           // the active app or doing some other more important task.
-          if (System.isBusyLoading()) {
+          if (Service.isBusyLoading()) {
             this._waitingForLoad = true;
             if (this.app.isHomescreen && this._transitionState == 'opening') {
               /**

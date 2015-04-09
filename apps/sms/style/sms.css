@@ -9,25 +9,56 @@ html, body {
 }
 
 
+/* Style for the attachment options menu, mimics style for shared
+ * options menu element.
+ * TODO: We should remove this once we used the shared options menu for the
+ *       attachment menu.
+ */
+#attachment-options {
+  visibility: hidden;
+  transform: translateY(100%);
+  transition: transform ease-in-out .3s, visibility .3s;
+}
+
+#attachment-options.visible {
+  visibility: visible;
+  transform: translateY(0);
+}
+
 /*
   Override BB. Some CSS tweaks for having a better confirm readability
 */
 form[role="dialog"][data-type="confirm"] p {
-  margin-top: 0 !important;
-  border-bottom: 0.1rem solid #686868;
+  white-space: pre-line;
 }
 
-form[role="dialog"][data-type="confirm"] p small {
-  line-height: 2rem;
+form[role="dialog"].error-dialog-show-recipient ul {
+  border: none;
 }
 
-form[data-type="confirm"] .phone-details .phone-number {
-  display: inline;
+form[role="dialog"].error-dialog-show-recipient ul li {
+  padding: 0;
+}
+
+/* This does not override the building block, that's why we use a shorter
+ * selector */
+.error-dialog-show-recipient li {
+  /* future-proof in case BB moves to "text-align: start" */
+  width: -moz-fit-content;
+
+  /* List items are phone numbers */
+  direction: ltr;
+  unicode-bidi: -moz-isolate;
 }
 
 gaia-header {
   position: relative;
   z-index: 10;
+}
+
+.group-header-title {
+  display: flex;
+  justify-content: center;
 }
 
 /* Override Building Block [Input areas] styles */
@@ -55,7 +86,6 @@ form[role="dialog"][data-type="edit"] > menu {
 
 #threads-container[data-type="list"] .mms-icon {
   display: none;
-  -moz-margin-start: 0.3rem;
 
   font-size: 1.5rem;
   color: #ff6622;
@@ -63,6 +93,14 @@ form[role="dialog"][data-type="edit"] > menu {
 
 #threads-container[data-type="list"] [data-last-message-type="mms"] .mms-icon {
   display: inline;
+}
+
+.edit .bottom-tab[role="region"] {
+  visibility: visible;
+}
+
+.bottom-tab[role="region"] {
+  visibility: hidden;
 }
 
 #threads-container[data-type="list"] [data-last-message-type="mms"] .body-text {
@@ -80,21 +118,33 @@ form[role="dialog"][data-type="edit"] > menu {
   top: 5rem;
 
   /* The width is not 100% so the scrollbar is visible. */
-  width: calc(100% - 1.5rem);
+  width: calc(100% - 2rem);
 
   /* The height needs to be kept in sync with the header height. */
   height: 3.1rem;
 
+  /* Leaving 1rem margin for both side to makes scrollbar visible in LTR/RTL */
+  margin: 0 1rem;
+
   /* The sticky element needs to be above the list. */
   z-index: 2;
 
+  /* Hide sticky header when content is not ready */
+  visibility: hidden;
+
   /* Those style will affect the backgroundImage: -moz-element. */
   background-repeat: no-repeat;
-  background-position: 1.5rem 0;
+  background-position: center top;
+  background-color: white;
+}
+
+#sticky.has-content {
+  /* Set sticky header visible only when content is ready */
+  visibility: visible;
 }
 
 .edit #threads-container[data-type="list"] {
-  height: calc(100% - 12rem);
+  height: calc(100% - 10rem);
 }
 
 #threads-container[data-type="list"] header {
@@ -146,6 +196,30 @@ form[role="dialog"][data-type="edit"] > menu {
   font-size: 2.5rem;
 }
 
+/* Override Building Block Tabs styles */
+form[role="dialog"][data-type="edit"] .bb-tablist:before {
+  bottom: 5.5rem ;
+}
+
+form[role="dialog"][data-type="edit"] .bb-tablist > li {
+  height: 5.5rem ;
+}
+
+.bb-tablist > li button {
+  background-position: 50% 50% ;
+}
+
+.bb-tablist > li button[data-action="delete-button"] {
+  background-image: url("images/icons/delete.png");
+}
+
+.bb-tablist > li button[data-action="mark-as-read"] {
+  background-image: url("images/icons/ico_in_markasread_30x30.png");
+}
+
+.bb-tablist > li button[data-action="mark-as-unread"] {
+  background-image: url("images/icons/ico_in_markasunread_30x30.png");
+}
 
 /**
  * Bug 967878, 979018 -[Messages] Background doesn't
@@ -168,8 +242,7 @@ form[role="dialog"][data-type="edit"] > menu {
 }
 
 [data-type="list"] aside.pack-end {
-  margin: 0;
-  -moz-margin-end: .5rem;
+  margin: 0 .5rem;
 }
 
 [data-type="list"] .unread aside.icon-unread {
@@ -181,6 +254,15 @@ form[role="dialog"][data-type="edit"] > menu {
   pointer-events: none;
 }
 
+[data-type="list"] .summary {
+  display: flex;
+}
+
+/* Override time margin for flex layout */
+[data-type="list"] .summary time {
+  -moz-margin-end: 1rem;
+}
+
 [data-type="list"] .draft .icon-draft {
   background: url("../style/images/draft.png") no-repeat left center / 1.2rem;
   visibility: visible;
@@ -190,7 +272,7 @@ form[role="dialog"][data-type="edit"] > menu {
   opacity: 0.5;
 }
 
-[data-type="list"] .is-draft .name {
+[data-type="list"] .is-draft .threadlist-item-title {
   font-style: italic;
   color: #5f5f5f;
 }
@@ -251,10 +333,6 @@ form[role="dialog"][data-type="edit"] > menu {
   background: #fff;
 }
 
-.panel:first-child {
-  left: 0;
-}
-
 .panel {
   position: absolute;
   left: 100%;
@@ -264,11 +342,15 @@ form[role="dialog"][data-type="edit"] > menu {
   transition: transform 0.4s ease;
 }
 
+.default-panel {
+  left: 0;
+}
+
 #main-wrapper[data-position='left'] .panel {
   transform: translateX(-100%);
 }
 
-#threads-container, #thread-messages {
+#threads-container, #thread-messages, #information-participants, #information-report {
   z-index: 10;
   background: white;
 }
@@ -302,13 +384,13 @@ form[role="dialog"][data-type="edit"] > menu {
   white-space: nowrap;
 }
 
-#messages-new-message-notice > div:first-child {
+#messages-new-message-notice > .text-container {
   flex: auto;
 
   overflow: hidden;
 }
 
-#messages-new-message-notice > div:nth-child(2) {
+#messages-new-message-notice > .button-container {
   flex: none;
 
   padding: 0.2rem;
@@ -336,10 +418,6 @@ form[role="dialog"][data-type="edit"] {
   transform: translateY(0);
 }
 
-.edit .undo-candidate {
-  display: none;
-}
-
 /*
   Styles for new message
 */
@@ -353,10 +431,6 @@ section[role="region"].new > gaia-header h1 {
 
   width: 5rem;
   height: 4rem;
-}
-
-section[role="region"].new > header:first-child form {
- display: block;
 }
 
 #messages-contact-pick-button .icon-user {
@@ -486,7 +560,7 @@ section[role="region"].new > header:first-child form {
 */
 
 .edit #messages-container {
-  margin-bottom: 7rem;
+  margin-bottom: 5.5rem;
 }
 
 .edit .article-list[data-type="list"] .message {
@@ -667,29 +741,34 @@ Do not remove.
 
 .recipient[contenteditable] {
   overflow: hidden;
-  /* Editable recipients have no `padding-start` so that they align with
-  * "assimilated" recipients (see `ThreadUI.assimilateRecipients`), but they
-  * maintain twice the `padding-end` so they wrap as if "assimilated". For
-  * discussion of this behavior, see "Bug 905260 - [messages] padding issues
-  * in the recipient panel". */
-  margin-top: 0.6rem;
-  -moz-margin-end: 0.6rem;
-  margin-bottom: 0;
-  -moz-margin-start: 0;
-
-  -moz-padding-end: 1.6rem;
+  /**
+   * We don't use -moz-margin-end\-start here because margin location shouldn't
+   * depend on text direction of recipient element content itself. For LTR mode
+   * both LTR and RTL recipient elements should have right margin, for RTL mode
+   * it should have left margin, so to align it correctly we should override
+   * margin depending on text direction of parent element.
+   */
+  margin: 0.6rem 0.6rem 0 0;
 
   display: block;
-  float: left;
 
-   /* override BB selector */
+  /* override BB selector */
   height: auto;
   width: auto;
 }
 
 .recipient[contenteditable].email {
-  -moz-padding-end: 3.8rem;
-  background: white url(images/icons/icon_sms_compose_email.png) calc(100% - 1.5rem) center no-repeat;
+  /**
+   * We don't use -moz-padding-start here because padding location shouldn't
+   * depend on text direction of recipient element content itself. For LTR mode
+   * both LTR and RTL email recipient elements should have left padding to
+   * accommodate email icon, for RTL mode it should be on the right side, so to
+   * align it correctly we should override padding depending on text direction
+   * of parent element.
+   */
+  padding-left: 3.8rem;
+  background: #fff url(images/icons/icon_sms_compose_email.png) left 1.5rem
+              center / 1.7rem no-repeat;
 }
 
 #messages-recipients-list > .recipient[contenteditable=true] {
@@ -705,6 +784,16 @@ Do not remove.
   color: #000;
 }
 
+#messages-recipients-list > .recipient[contenteditable=true]:focus {
+  /**
+   * To workaround bug 1103011, we just collapse editable recipient on focus so
+   * that caret position looks correct for the user, while in fact it is not
+   * true - caret is still in wrong position, but zero-width editable element is
+   * aligned correctly inside parent.
+   */
+  flex-grow: unset;
+}
+
 .recipient[contenteditable=true]:empty:not(:last-of-type) {
   display: none;
 }
@@ -714,7 +803,14 @@ Do not remove.
  * to intelligently collapse when the final row contains no "assimilated"
  * (i.e. non-contenteditable) recipients. */
 .recipient[contenteditable=true]:empty {
-  -moz-margin-end: -0.5rem;
+  /**
+   * We don't use -moz-margin-end here because of the bug 1103011, as currently
+   * directionality of empty contenteditable isn't inherited from parent, but
+   * always LTR, so -moz-margin-end equals to margin-right in both LTR and RTL
+   * modes. So to align it correctly we should override margin depending on text
+   * direction of parent element manually.
+   */
+  margin-right: -0.5rem;
   padding: 0;
 }
 
@@ -746,8 +842,8 @@ Do not remove.
   max-height: calc(100% - 10.5rem);
 }
 
-#messages-recipient-suggestions li:first-child {
-  margin-top: 0;
+#messages-recipient-suggestions li {
+  pointer-events: auto;
 }
 
 .article-list[data-type="list"] ul.contact-list {
@@ -760,17 +856,29 @@ Do not remove.
   background: #fff;
 }
 
-body[role="application"] form[role="dialog"][data-type="action"] > section:first-child{
-  height: auto;
-  border-bottom: 0.1rem solid #616262;
-  padding-bottom: 1rem;
-  -moz-padding-start: 2.5rem;
+/**
+ * TODO: It's an adjustment for line-height/padding to prevent bottom of chars
+ * been cut. This fix will be moved to shared list.css once Bug 1144588 landed
+ */
+.contact-list .suggestion > .name {
+  line-height: 2.4rem;
+  padding-top: 0.8rem;
 }
 
 form[role="dialog"][data-type="action"].contact-prompt > header {
   height: auto;
   min-height: 5rem;
-  font-weight: 100;
+  font-weight: 300;
+}
+
+.unknown-contact-header {
+  line-height: 2.5rem;
+  padding: 1.3rem 0;
+  margin: 0;
+  overflow: hidden;
+
+  text-overflow: ellipsis;
+  font-size: 2.3rem;
 }
 
 .contact-header {
@@ -780,8 +888,8 @@ form[role="dialog"][data-type="action"].contact-prompt > header {
 }
 
 .contact-header .name {
-  line-height: 2.5rem;
-  padding: 0.5rem 0 0.8rem;
+  line-height: 3.3rem;
+  padding: 0.1rem 0 0.4rem;
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -811,14 +919,6 @@ form[role="dialog"][data-type="action"].contact-prompt > header {
   -moz-margin-end: -1.5rem; /* compensate the header's 3rem padding */
 }
 
-section[role="region"].new .article-list[data-type="list"] li:first-child {
-  margin-top: 4.6rem;
-}
-
-section[role="region"].new .article-list[data-type="list"]  li {
-  pointer-events: auto;
-}
-
 .suggestion * {
   pointer-events: none;
 }
@@ -832,7 +932,7 @@ section[role="region"].new .article-list[data-type="list"]  li {
   top: 5rem;
 }
 
-body[role="application"] form[role="dialog"][data-type="action"] > header:first-child{
+form[role="dialog"][data-type="action"] > header {
  text-align: start;
 }
 
@@ -842,23 +942,6 @@ body[role="application"] form[role="dialog"][data-type="action"] > header:first-
 
   width: 5rem;
   height: 4rem;
-}
-
-/**
- * 1. COMPLEX: Scoped style-sheets within <gaia-header>
- * trump all other rules. !important is required
- * for an app to over-ride the default appearance
- * of content within the custom-element. This may
- * change when we get `:host` and `:content` selectors
- * in shadow-dom.
- */
-
-/* Elements related to information view */
-section[role="region"][class$='information'] #messages-options-button,
-section[role="region"][class$='information'] #messages-subheader,
-section[role="region"][class$='information'] #messages-container,
-section[role="region"][class$='information'] #messages-compose-form {
-  display: none !important; /* 1 */
 }
 
 #messages-back-button:hover {
@@ -871,16 +954,18 @@ section[role="region"][class$='information'] #messages-compose-form {
 }
 
 /* Phone details label styles */
-.phone-details > .phone-details-item {
+.phone-type,
+.phone-type-separator,
+.phone-carrier,
+.phone-carrier-separator {
   display: none;
 }
 
-.phone-details.has-phone-type > .phone-type,
-.phone-details.has-phone-type > .phone-type-separator,
-.phone-details > .phone-number,
-.phone-details.has-phone-carrier > .phone-carrier,
-.phone-details.has-phone-carrier > .phone-carrier-separator {
-  display: inline;
+.has-phone-type > .phone-type,
+.has-phone-type > .phone-type-separator,
+.has-phone-carrier > .phone-carrier,
+.has-phone-carrier > .phone-carrier-separator {
+  display: unset;
 }
 
 /* RTL View */
@@ -920,28 +1005,12 @@ html[dir="rtl"] .edit #threads-container[data-type="list"] aside.pack-end span {
 
 /* RTL for thread view */
 
-html[dir="rtl"] .edit .message.incoming .bubble {
+html[dir="rtl"] .edit .message.outgoing .bubble {
   transform: translateX(0);
 }
 
-html[dir="rtl"] .edit .message.outgoing .bubble {
+html[dir="rtl"] .edit .message.incoming .bubble {
   transform: translateX(-2.5rem);
-}
-
-/* RTL for panel position */
-html[dir="rtl"] #main-wrapper,
-html[dir="rtl"] .panel:first-child {
-  left: unset;
-  right: 0;
-}
-
-html[dir="rtl"] .panel {
-  left: unset;
-  right: 100%;
-}
-
-html[dir="rtl"] #main-wrapper[data-position='left'] .panel {
-  transform: translateX(100%);
 }
 
 html[dir="rtl"] #messages-contact-pick-button .icon-user {
@@ -950,11 +1019,83 @@ html[dir="rtl"] #messages-contact-pick-button .icon-user {
 }
 
 /* RTL for recipient panel */
-html[dir="rtl"] .recipient[contenteditable] {
-  float: right;
+:-moz-dir(rtl) > .recipient[contenteditable] {
+  margin-left: 0.6rem;
+  margin-right: 0;
+
+  /**
+   * We need "text-align: right" only for the cases when currently editable
+   * recipient looses focus but not yet assimilated: case №1 - when we tap on
+   * thread-container - maybe fixed soon, case №2 - when we use screen reader,
+   * eg. single touch on message input steals focus from currently editable
+   * recipient, but doesn't yet give it to the message input. As the result
+   * flex-grow (see workaround for bug 1103011) returns and because of dir=auto
+   * LTR\RTL name would be always left\right aligned in both LTR and RTL modes.
+   */
+  text-align: right;
+}
+
+:-moz-dir(rtl) > .recipient[contenteditable].email {
+  /**
+   * See LTR ".recipient[contenteditable].email" rule above for the explanation
+   * why we don't use -moz-padding-start/-end here.
+   */
+  padding: 0 3.8rem 0 1.5rem;
+
+  background-position: right 1.5rem center;
+}
+
+:-moz-dir(rtl) > .recipient[contenteditable=true]:empty {
+  /**
+   * See LTR ".recipient[contenteditable=true]:empty" rule above for the
+   * explanation why we don't use -moz-margin-start/-end here.
+   */
+  margin-left: -0.5rem;
+  margin-right: 0;
 }
 
 /* RTL for contact prompt header */
 html[dir="rtl"] .contact-header aside.pack-end {
   float: left;
+}
+
+/* ellipsis direction hack before bug 883884 fixed */
+.ellipsis-dir-fix {
+  display: block;
+  width: -moz-fit-content;
+  max-width: 100%;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#messages-header-text .ellipsis-dir-fix {
+  width: auto;
+}
+
+/* Text selection control */
+html {
+  -moz-user-select: none;
+}
+.editable-select-mode [contenteditable] {
+  -moz-user-select: text;
+}
+
+/* Empty threadlist layout. */
+#threads-no-messages, .threadlist-is-empty #threads-container {
+  display: none;
+}
+
+/* Using !important to override scoped style in gaia-header component. */
+#threads-settings-button, .threadlist-is-empty #threads-options-button {
+  display: none !important;
+}
+
+/* Using flex to center the content. */
+.threadlist-is-empty #threads-settings-button {
+  display: flex !important;
+}
+
+.threadlist-is-empty #threads-no-messages {
+  display: block;
 }

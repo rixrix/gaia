@@ -7,6 +7,7 @@ from gaiatest.apps.phone.app import Phone
 from gaiatest.apps.phone.regions.call_screen import CallScreen
 
 from marionette import SkipTest
+from marionette_driver import Wait
 
 
 class TestCallLogAllCalls(GaiaTestCase):
@@ -28,9 +29,10 @@ class TestCallLogAllCalls(GaiaTestCase):
         """
         https://moztrap.mozilla.org/manage/case/1306/
         """
-
         test_phone_number = self.testvars['remote_phone_number']
-        plivo_phone_number = self.testvars['plivo']['phone_number']
+
+        # Remove the first digit (country code) which is not displayed for AT&T/USA - Bug 1088756
+        plivo_phone_number = self.testvars['plivo']['phone_number'][1:]
 
         # Make a call so it will appear in the call log
         self.phone.make_call_and_hang_up(test_phone_number)
@@ -45,13 +47,15 @@ class TestCallLogAllCalls(GaiaTestCase):
             self.testvars['plivo']['auth_token'],
             self.testvars['plivo']['phone_number']
         )
-        self.call_uuid = self.plivo.make_call(
-            to_number=self.testvars['carrier']['phone_number'].replace('+', ''),
-            timeout=30)
 
+        self.call_uuid = self.plivo.make_call(
+            to_number=self.environment.phone_numbers[0].replace('+', ''))
         call_screen = CallScreen(self.marionette)
         call_screen.wait_for_incoming_call()
+
         self.plivo.hangup_call(self.call_uuid)
+        self.plivo.wait_for_call_completed(self.call_uuid)
+        self.call_uuid = None
 
         self.apps.switch_to_displayed_app()
         call_log = self.phone.tap_call_log_toolbar_button()
@@ -60,8 +64,8 @@ class TestCallLogAllCalls(GaiaTestCase):
         call_log.tap_all_calls_tab()
         self.assertTrue(call_log.is_all_calls_tab_selected)
 
+        self.wait_for_condition(lambda m: len(call_log.call_list) == 2)
         call_list = call_log.call_list
-        self.assertEqual(len(call_list), 2)
 
         # Check that the calls displayed are for the calls we made/received
         self.assertIn(plivo_phone_number, call_list[0].phone_number)
@@ -73,8 +77,8 @@ class TestCallLogAllCalls(GaiaTestCase):
         call_log.tap_missed_calls_tab()
         self.assertTrue(call_log.is_missed_calls_tab_selected)
 
+        self.wait_for_condition(lambda m: len(call_log.call_list) == 1)
         call_list = call_log.call_list
-        self.assertEqual(len(call_list), 1)
 
         # Check that the calls displayed are for the calls we received
         self.assertIn(plivo_phone_number, call_list[0].phone_number)

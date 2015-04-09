@@ -1,20 +1,16 @@
-/*global mocha, MocksHelper, loadBodyHTML, MockL10n, ThreadListUI,
+/*global MocksHelper, loadBodyHTML, MockL10n, ThreadListUI,
          MessageManager, WaitingScreen, Threads, Template, MockMessages,
          MockThreadList, MockTimeHeaders, Draft, Drafts, Thread, ThreadUI,
          MockOptionMenu, Utils, Contacts, MockContact, Navigation,
-         MockSettings,
-         Dialog,
-         InterInstanceEventDispatcher
+         MockSettings, Settings,
+         InterInstanceEventDispatcher,
+         MockStickyHeader,
+         StickyHeader
          */
 
 'use strict';
 
-// remove this when https://github.com/visionmedia/mocha/issues/819 is merged in
-// mocha and when we have that new mocha in test agent
-mocha.setup({ globals: ['alert', 'confirm'] });
-
 requireApp('sms/js/utils.js');
-require('/js/dialog.js');
 requireApp('sms/js/recipients.js');
 requireApp('sms/js/drafts.js');
 requireApp('sms/js/threads.js');
@@ -39,6 +35,8 @@ require('/shared/test/unit/mocks/mock_sticky_header.js');
 require('/test/unit/mock_navigation.js');
 require('/test/unit/mock_settings.js');
 require('/test/unit/mock_inter_instance_event_dispatcher.js');
+require('/test/unit/mock_selection_handler.js');
+require('/shared/test/unit/mocks/mock_lazy_loader.js');
 
 var mocksHelperForThreadListUI = new MocksHelper([
   'asyncStorage',
@@ -54,6 +52,9 @@ var mocksHelperForThreadListUI = new MocksHelper([
   'StickyHeader',
   'Navigation',
   'InterInstanceEventDispatcher',
+  'SelectionHandler',
+  'LazyLoader',
+  'Settings'
 ]).init();
 
 suite('thread_list_ui', function() {
@@ -133,33 +134,23 @@ suite('thread_list_ui', function() {
 
   suite('setEmpty', function() {
     suite('(true)', function() {
+      var panel;
       setup(function() {
-        // set wrong states
-        ThreadListUI.noMessages.classList.add('hide');
-        ThreadListUI.container.classList.remove('hide');
-        // make sure it sets em all
+        panel = document.getElementById('thread-list');
         ThreadListUI.setEmpty(true);
       });
-      test('removes noMessages hide', function() {
-        assert.isFalse(ThreadListUI.noMessages.classList.contains('hide'));
-      });
-      test('adds container hide', function() {
-        assert.isTrue(ThreadListUI.container.classList.contains('hide'));
+      test('displays noMessages and hides container', function() {
+        assert.isTrue(panel.classList.contains('threadlist-is-empty'));
       });
     });
     suite('(false)', function() {
+      var panel;
       setup(function() {
-        // set wrong states
-        ThreadListUI.noMessages.classList.remove('hide');
-        ThreadListUI.container.classList.add('hide');
-        // make sure it sets em all
+        panel = document.getElementById('thread-list');
         ThreadListUI.setEmpty(false);
       });
-      test('adds noMessages hide', function() {
-        assert.isTrue(ThreadListUI.noMessages.classList.contains('hide'));
-      });
-      test('removes container hide', function() {
-        assert.isFalse(ThreadListUI.container.classList.contains('hide'));
+      test('hides noMessages and displays container', function() {
+        assert.isFalse(panel.classList.contains('threadlist-is-empty'));
       });
     });
   });
@@ -170,16 +161,6 @@ suite('thread_list_ui', function() {
     });
     teardown(function() {
       MockOptionMenu.mTeardown();
-    });
-
-    test('show settings/cancel options when list is empty', function() {
-      ThreadListUI.setEmpty(true);
-      ThreadListUI.showOptions();
-
-      var optionItems = MockOptionMenu.calls[0].items;
-      assert.equal(optionItems.length, 2);
-      assert.equal(optionItems[0].l10nId, 'settings');
-      assert.equal(optionItems[1].l10nId, 'cancel');
     });
 
     test('show select/settings/cancel options when list existed', function() {
@@ -202,6 +183,7 @@ suite('thread_list_ui', function() {
         '<h2 id="header-2"></h2>' +
         '<ul id="list-2"><li id="thread-3"></li></ul>';
 
+      ThreadListUI.sticky = new MockStickyHeader();
       this.sinon.stub(ThreadListUI.sticky, 'refresh');
       this.sinon.stub(window.URL, 'revokeObjectURL');
     });
@@ -309,6 +291,8 @@ suite('thread_list_ui', function() {
       this.sinon.stub(ThreadListUI, 'setContact');
       this.sinon.spy(ThreadListUI, 'mark');
       this.sinon.spy(ThreadListUI, 'setEmpty');
+      // This is normally created by renderThreads
+      ThreadListUI.sticky = new MockStickyHeader();
       this.sinon.spy(ThreadListUI.sticky, 'refresh');
     });
 
@@ -584,6 +568,96 @@ suite('thread_list_ui', function() {
     });
   });
 
+  suite('markReadUnread', function() {
+    setup(function() {
+      var threads = [{
+        id: 1,
+        date: new Date(2013, 1, 2),
+        unread: false
+      }, {
+        id: 2,
+        date: new Date(2013, 1, 0),
+        unread: true
+      }, {
+        id: 3,
+        date: new Date(2013, 1, 2),
+        unread: true
+      }, {
+        id: 4,
+        date: new Date(2013, 1, 0),
+        unread: true
+      }, {
+        id: 5,
+        date: new Date(2013, 1, 2),
+        unread: false
+      }, {
+        id: 6,
+        date: new Date(2013, 1, 0),
+        unread: false
+      }];
+
+      threads.forEach((threadInfo) => {
+        var thread = Thread.create(MockMessages.sms({
+          threadId: threadInfo.id,
+          timestamp: +threadInfo.date
+        }), { unread: threadInfo.unread });
+        Threads.set(thread.id, thread);
+        ThreadListUI.appendThread(thread);
+      });
+
+      ThreadListUI.selectionHandler = null;
+      ThreadListUI.startEdit();
+    });
+
+    test('one read and one unread Thread', function() {
+      var firstThreadNode = document.getElementById('thread-1'),
+          secondThreadNode = document.getElementById('thread-2');
+
+      ThreadListUI.selectionHandler.selected = new Set(['1', '2']);
+
+      ThreadListUI.checkInputs();
+      ThreadListUI.markReadUnread(
+        ThreadListUI.selectionHandler.selectedList,
+        true
+      );
+
+      assert.isFalse(firstThreadNode.classList.contains('unread'));
+      assert.isFalse(secondThreadNode.classList.contains('unread'));
+    });
+
+    test('both Threads are unread', function() {
+      var firstThreadNode = document.getElementById('thread-3'),
+          secondThreadNode = document.getElementById('thread-4');
+
+      ThreadListUI.selectionHandler.selected = new Set(['3', '4']);
+
+      ThreadListUI.checkInputs();
+      ThreadListUI.markReadUnread(
+        ThreadListUI.selectionHandler.selectedList,
+        true
+      );
+
+      assert.isFalse(firstThreadNode.classList.contains('unread'));
+      assert.isFalse(secondThreadNode.classList.contains('unread'));
+    });
+
+    test('both Threads are read', function() {
+     var firstThreadNode = document.getElementById('thread-5'),
+         secondThreadNode = document.getElementById('thread-6');
+
+      ThreadListUI.selectionHandler.selected = new Set(['5', '6']);
+
+      ThreadListUI.checkInputs();
+      ThreadListUI.markReadUnread(
+        ThreadListUI.selectionHandler.selectedList,
+        false
+      );
+
+      assert.isTrue(firstThreadNode.classList.contains('unread'));
+      assert.isTrue(secondThreadNode.classList.contains('unread'));
+    });
+  });
+
   suite('delete', function() {
     var threadDraftIds = [100, 200],
         threadIds = [1, 2, 3];
@@ -622,16 +696,18 @@ suite('thread_list_ui', function() {
 
         assert.isNotNull(document.getElementById('thread-' +thread.id));
       });
+
+      ThreadListUI.selectionHandler = null;
+      ThreadListUI.startEdit();
     });
 
     teardown(function() {
       ThreadListUI.container = '';
       Drafts.clear();
+      ThreadListUI.cancelEdit();
     });
 
     suite('confirm true', function() {
-      var dialogStub;
-
       function getMessagesCallParams(threadId) {
         return  {
           each: sinon.match.func,
@@ -641,54 +717,46 @@ suite('thread_list_ui', function() {
       }
 
       function selectThreadsAndDelete(threadIds) {
-        threadIds.forEach((threadId) => {
-          ThreadListUI.container.querySelector(
-            '#thread-' + threadId + ' input[type=checkbox]'
-          ).checked = true;
-        });
+        var selectedIds = threadIds.map(threadId => '' + threadId);
 
-        Dialog.firstCall.args[0].options.confirm.method();
+        ThreadListUI.selectionHandler.selected = new Set(selectedIds);
+
+        return ThreadListUI.delete(ThreadListUI.selectionHandler.selectedList);
       }
 
       setup(function() {
-        dialogStub = sinon.createStubInstance(Dialog);
-
         this.sinon.stub(WaitingScreen, 'show');
         this.sinon.stub(WaitingScreen, 'hide');
         this.sinon.stub(MessageManager, 'deleteMessages');
-        this.sinon.stub(window, 'Dialog').returns(dialogStub);
-
-        ThreadListUI.delete();
+        this.sinon.stub(Utils, 'confirm').returns(Promise.resolve());
       });
 
-      test('called dialog with proper message', function() {
-        sinon.assert.called(dialogStub.show);
-
-        sinon.assert.calledWith(Dialog, {
-          title: { l10nId: 'messages' },
-          body: { l10nId: 'deleteThreads-confirmation2' },
-          options: {
-            cancel: {
-              text: { l10nId: 'cancel' }
+      test('called confirm with proper message', function(done) {
+        selectThreadsAndDelete(threadDraftIds).then(() => {
+          sinon.assert.calledWith(
+            Utils.confirm,
+            {
+              id: 'deleteThreads-confirmation-message',
+              args: { n: threadDraftIds.length }
             },
-            confirm: {
-              text: { l10nId: 'delete' },
-              className: 'danger',
-              method: sinon.match.func
+            null,
+            {
+              text: 'delete',
+              className: 'danger'
             }
-          }
-        });
+          );
+        }).then(done, done);
       });
 
       suite('delete drafts only', function() {
-        setup(function() {
+        setup(function(done) {
           this.sinon.spy(Drafts, 'store');
 
           threadDraftIds.forEach((id) => {
             assert.isTrue(Drafts.byThreadId(id).length > 0);
           });
 
-          selectThreadsAndDelete(threadDraftIds);
+          selectThreadsAndDelete(threadDraftIds).then(done, done);
         });
 
         test('removes thread draft from the DOM', function() {
@@ -711,11 +779,11 @@ suite('thread_list_ui', function() {
       suite('delete real threads only', function() {
         var threadsToDelete = threadIds.slice(0, 2);
 
-        setup(function() {
+        setup(function(done) {
           this.sinon.spy(Drafts, 'store');
           this.sinon.spy(Utils, 'closeNotificationsForThread');
 
-          selectThreadsAndDelete(threadsToDelete);
+          selectThreadsAndDelete(threadsToDelete).then(done, done);
         });
 
         test('getMessages is called for the right thread', function() {
@@ -775,11 +843,11 @@ suite('thread_list_ui', function() {
       suite('delete both real threads and drafts', function() {
         var threadsToDelete = threadDraftIds.concat(threadIds);
 
-        setup(function() {
+        setup(function(done) {
           this.sinon.spy(Drafts, 'store');
           this.sinon.spy(Utils, 'closeNotificationsForThread');
 
-          selectThreadsAndDelete(threadsToDelete);
+          selectThreadsAndDelete(threadsToDelete).then(done, done);
         });
 
         test('getMessages is called for the right thread', function() {
@@ -1209,7 +1277,7 @@ suite('thread_list_ui', function() {
   });
 
   suite('renderThreads', function() {
-    var firstViewDone;
+    var firstViewDone,panel;
     setup(function() {
       this.sinon.spy(ThreadListUI, 'setEmpty');
       this.sinon.spy(ThreadListUI, 'prepareRendering');
@@ -1220,8 +1288,13 @@ suite('thread_list_ui', function() {
       this.sinon.spy(ThreadListUI, 'createThread');
       this.sinon.spy(ThreadListUI, 'setContact');
       this.sinon.spy(ThreadListUI, 'renderDrafts');
-      this.sinon.spy(ThreadListUI.sticky, 'refresh');
+      this.sinon.spy(MockStickyHeader.prototype, 'refresh');
+      this.sinon.spy(window, 'StickyHeader');
+
+      this.sinon.stub(Settings, 'setReadAheadThreadRetrieval');
+
       firstViewDone = sinon.stub();
+      panel = document.getElementById('thread-list');
 
       Threads.clear();
     });
@@ -1232,14 +1305,13 @@ suite('thread_list_ui', function() {
         options.done();
       });
 
-      ThreadListUI.renderThreads(firstViewDone ,function() {
+      ThreadListUI.renderThreads(firstViewDone, function() {
         done(function checks() {
           sinon.assert.called(firstViewDone);
           sinon.assert.called(ThreadListUI.renderDrafts);
-          sinon.assert.called(ThreadListUI.sticky.refresh);
+          sinon.assert.called(StickyHeader);
           sinon.assert.calledWith(ThreadListUI.finalizeRendering, true);
-          assert.isFalse(ThreadListUI.noMessages.classList.contains('hide'));
-          assert.isTrue(ThreadListUI.container.classList.contains('hide'));
+          assert.isTrue(panel.classList.contains('threadlist-is-empty'));
         });
       });
     });
@@ -1284,8 +1356,9 @@ suite('thread_list_ui', function() {
       ThreadListUI.renderThreads(firstViewDone, function() {
         done(function checks() {
           sinon.assert.calledWith(ThreadListUI.finalizeRendering, false);
-          assert.isTrue(ThreadListUI.noMessages.classList.contains('hide'));
-          assert.isFalse(ThreadListUI.container.classList.contains('hide'));
+          assert.isFalse(panel.classList.contains('threadlist-is-empty'));
+          sinon.assert.called(StickyHeader);
+          sinon.assert.called(ThreadListUI.sticky.refresh);
 
           var mmsThreads = container.querySelectorAll(
             '[data-last-message-type="mms"]'
@@ -1297,6 +1370,11 @@ suite('thread_list_ui', function() {
           // Check that all threads have been properly inserted in the list
           assert.equal(mmsThreads.length, 2);
           assert.equal(smsThreads.length, 8);
+
+          sinon.assert.calledWith(
+            Settings.setReadAheadThreadRetrieval,
+            ThreadListUI.FIRST_PANEL_THREAD_COUNT
+          );
         });
       });
     });
@@ -1345,7 +1423,7 @@ suite('thread_list_ui', function() {
     var draft;
     var thread, threadDraft;
 
-    setup(function() {
+    setup(function(done) {
       this.sinon.spy(ThreadListUI, 'renderThreads');
       this.sinon.spy(ThreadListUI, 'appendThread');
       this.sinon.spy(ThreadListUI, 'createThread');
@@ -1387,14 +1465,14 @@ suite('thread_list_ui', function() {
 
       Drafts.add(draft);
 
-      this.sinon.stub(Drafts, 'request', function(callback) {
-        callback([draft, threadDraft]);
-      });
+      this.sinon.stub(Drafts, 'request').returns(
+        Promise.resolve([draft, threadDraft])
+      );
 
       ThreadListUI.draftLinks = new Map();
       ThreadListUI.draftRegistry = {};
 
-      ThreadListUI.renderDrafts();
+      ThreadListUI.renderDrafts().then(done, done);
     });
 
     teardown(function() {
@@ -1430,7 +1508,7 @@ suite('thread_list_ui', function() {
     function() {
       InterInstanceEventDispatcher.on.withArgs('drafts-changed').yield();
 
-      sinon.assert.calledWith(Drafts.request, sinon.match.func, true);
+      sinon.assert.calledWith(Drafts.request, true);
     });
   });
 
@@ -1591,12 +1669,10 @@ suite('thread_list_ui', function() {
     });
 
     test('display correctly a group MMS thread', function(done) {
-      var threadTitleNode = groupThread.node.querySelector('.name');
-
       Object.defineProperty(window, 'innerWidth', {
         configurable: true,
-        get: () => 400 }
-      );
+        get: () => 400
+      });
       ThreadListUI.init();
 
       Contacts.findByAddress.withArgs('555').yields(MockContact.list([{
@@ -1610,6 +1686,10 @@ suite('thread_list_ui', function() {
       }]));
 
       ThreadListUI.setContact(groupThread.node).then(() => {
+        var threadTitleNode = groupThread.node.querySelector(
+          '.threadlist-item-title'
+        );
+
         assert.isFalse(
           groupThread.picture.style.backgroundImage.contains('blob:')
         );
@@ -1620,18 +1700,23 @@ suite('thread_list_ui', function() {
           groupThread.pictureContainer.classList.contains('has-picture')
         );
         assert.equal(groupThread.picture.textContent, '2');
-        assert.equal(threadTitleNode.textContent, 'James Bond, Bond James');
+        assert.equal(
+          threadTitleNode.innerHTML,
+          '<span>' +
+            '<bdi>James Bond</bdi>' +
+            '<span data-l10n-id="thread-participant-separator"></span>' +
+            '<bdi>Bond James</bdi>' +
+          '</span>'
+        );
       }).then(done, done);
     });
 
     test('display correctly a group MMS thread with lots of participants',
     function(done) {
-      var threadTitleNode = groupThread.node.querySelector('.name');
-
       Object.defineProperty(window, 'innerWidth', {
         configurable: true,
-        get: () => 200 }
-      );
+        get: () => 200
+      });
       ThreadListUI.init();
 
       Contacts.findByAddress.withArgs('555').yields(MockContact.list([{
@@ -1640,6 +1725,10 @@ suite('thread_list_ui', function() {
       }]));
 
       ThreadListUI.setContact(groupThread.node).then(() => {
+        var threadTitleNode = groupThread.node.querySelector(
+          '.threadlist-item-title'
+        );
+
         sinon.assert.calledOnce(Contacts.findByAddress);
         sinon.assert.calledWith(Contacts.findByAddress, '555');
         assert.isFalse(
@@ -1652,7 +1741,10 @@ suite('thread_list_ui', function() {
           groupThread.pictureContainer.classList.contains('has-picture')
         );
         assert.equal(groupThread.picture.textContent, '2');
-        assert.equal(threadTitleNode.textContent, 'James Bond');
+        assert.equal(
+          threadTitleNode.innerHTML,
+          '<span><bdi>James Bond</bdi></span>'
+        );
       }).then(done, done);
     });
   });
@@ -1742,17 +1834,175 @@ suite('thread_list_ui', function() {
       thread2 = document.getElementById('thread-2');
     });
 
+    teardown(function() {
+      ThreadListUI.inEditMode = false;
+    });
+
     test('clicking on a list item', function() {
+      ThreadListUI.inEditMode = false;
       thread1.querySelector('a').click();
 
       sinon.assert.calledWith(Navigation.toPanel, 'thread', { id: 1 });
     });
 
     test('clicking on a list item in edit mode', function() {
+      ThreadListUI.inEditMode = true;
       thread1.querySelector('label').click();
 
       sinon.assert.notCalled(Navigation.toPanel);
       assert.ok(thread1.querySelector('input').checked);
+    });
+  });
+
+  suite('contextmenu handling > Long press on the thread', function() {
+    var draft,
+        threads = [{
+          id: 1,
+          date: new Date(2013, 1, 2),
+          unread: true
+        }, {
+          id: 2,
+          date: new Date(2013, 1, 0),
+          unread: false
+        }];
+
+    setup(function(done) {
+      this.sinon.stub(MessageManager, 'markThreadRead');
+      this.sinon.stub(ThreadListUI, 'delete');
+
+      threads.forEach((threadInfo) => {
+        var thread = Thread.create(MockMessages.sms({
+          threadId: threadInfo.id,
+          timestamp: +threadInfo.date
+        }), { unread: threadInfo.unread });
+        Threads.set(thread.id, thread);
+        ThreadListUI.appendThread(thread);
+      });
+
+      draft = new Draft({
+        id: 101,
+        threadId: null,
+        recipients: [],
+        content: ['An explicit id'],
+        timestamp: Date.now(),
+        type: 'sms'
+      });
+
+      Drafts.add(draft);
+
+      this.sinon.stub(Drafts, 'request').returns(
+        Promise.resolve([draft])
+      );
+
+      ThreadListUI.renderDrafts().then(done, done);
+    });
+
+    teardown(function() {
+      ThreadListUI.inEditMode = false;
+      Drafts.clear();
+    });
+
+    //mark as read action on thread
+    test(' "long-press" on thread having unread message', function() {
+      var firstThreadNode = document.getElementById('thread-1');
+      var contextMenuEvent = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true
+      });
+
+      firstThreadNode.querySelector('a').dispatchEvent(contextMenuEvent);
+      var item = MockOptionMenu.calls[0].items[1];
+      item.method.apply(null, item.params);
+
+      assert.equal(MockOptionMenu.calls.length, 1);
+      assert.equal(
+        MockOptionMenu.calls[0].items[0].l10nId, 'delete-thread'
+      );
+      assert.equal(
+        MockOptionMenu.calls[0].items[1].l10nId, 'mark-as-read'
+      );
+      assert.equal(
+        MockOptionMenu.calls[0].items[2].l10nId, 'cancel'
+      );
+      sinon.assert.calledWith(MessageManager.markThreadRead, 1, true);
+    });
+
+    //mark as unread action on thread
+    test(' "long-press" on thread having read message', function() {
+      var secondThreadNode = document.getElementById('thread-2');
+      var contextMenuEvent = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true
+      });
+
+      secondThreadNode.querySelector('a').dispatchEvent(contextMenuEvent);
+      var item = MockOptionMenu.calls[0].items[1];
+      item.method.apply(null, item.params);
+
+      assert.ok(MockOptionMenu.calls.length, 1);
+      assert.equal(
+        MockOptionMenu.calls[0].items[0].l10nId, 'delete-thread'
+      );
+      assert.equal(
+        MockOptionMenu.calls[0].items[1].l10nId, 'mark-as-unread'
+      );
+      assert.equal(
+        MockOptionMenu.calls[0].items[2].l10nId, 'cancel'
+      );
+      sinon.assert.calledWith(MessageManager.markThreadRead, 2, false);
+    });
+
+    //delete action on thread
+    test(' "long-press" on thread & delete action', function() {
+      var secondThreadNode = document.getElementById('thread-2');
+      var contextMenuEvent = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true
+      });
+
+      secondThreadNode.querySelector('a').dispatchEvent(contextMenuEvent);
+      var item = MockOptionMenu.calls[0].items[0];
+      item.method.apply(null, item.params);
+
+      assert.ok(MockOptionMenu.calls.length, 1);
+      assert.equal(
+        MockOptionMenu.calls[0].items[0].l10nId, 'delete-thread'
+      );
+      assert.equal(
+        MockOptionMenu.calls[0].items[1].l10nId, 'mark-as-unread'
+      );
+      assert.equal(
+        MockOptionMenu.calls[0].items[2].l10nId, 'cancel'
+      );
+      sinon.assert.calledWith(ThreadListUI.delete, ['2']);
+    });
+
+    //delete action on draft-thread & mark-as-read/unread not available
+    test(' "long-press" on Draft & delete action',function() {
+      var firstThreadDraftNode = document.querySelector('#thread-101 a');
+      var contextMenuEvent = new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true
+      });
+
+      firstThreadDraftNode.dispatchEvent(contextMenuEvent);
+      var item = MockOptionMenu.calls[0].items[0];
+      item.method.apply(null, item.params);
+
+      assert.ok(MockOptionMenu.calls.length, 1);
+      assert.equal(
+        MockOptionMenu.calls[0].items[0].l10nId, 'delete-thread'
+      );
+      assert.notEqual(
+        MockOptionMenu.calls[0].items[1].l10nId, 'mark-as-read'
+      );
+      assert.notEqual(
+        MockOptionMenu.calls[0].items[1].l10nId, 'mark-as-unread'
+      );
+      assert.equal(
+        MockOptionMenu.calls[0].items[1].l10nId, 'cancel'
+      );
+      sinon.assert.calledWith(ThreadListUI.delete, ['101']);
     });
   });
 });

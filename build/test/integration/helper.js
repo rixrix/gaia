@@ -1,5 +1,5 @@
 'use strict';
-/* global exports, require */
+
 var assert = require('chai').assert;
 var fs = require('fs');
 var AdmZip = require('adm-zip');
@@ -58,14 +58,33 @@ function checkWebappsScheme(webapps) {
         key + ' of webapps.json has not defined ' + configKey);
     });
     var scheme =
-      webapp.origin.indexOf('mochi.test') !== -1 ||
-      webapp.origin.indexOf('inapp-pay-test.paas.allizom.org') !== -1 ?
+      webapp.origin.indexOf('mochi.test') !== -1 ?
       'http' : 'app';
     assert.equal(webapp.origin.indexOf(scheme), 0);
   });
 }
 
+function checkFilePathInZip(zipPath, expectedPath) {
+  var zip = new AdmZip(zipPath);
+  var entries = zip.getEntries();
+  var result = entries.some(function(entry) {
+    return entry.entryName.indexOf(expectedPath) !== -1;
+  });
+  assert.ok(result, 'Checking ' + expectedPath + ' in ' + zipPath);
+}
+
 function checkFileInZip(zipPath, pathInZip, expectedPath) {
+  var stat = fs.statSync(expectedPath);
+  if (stat && stat.isDirectory()) {
+    var list = fs.readdirSync(expectedPath);
+    list.forEach(function(filename) {
+      checkFileInZip(
+        zipPath, pathInZip + '/' + filename, expectedPath + '/' + filename);
+    });
+
+    return;
+  }
+
   var expected = fs.readFileSync(expectedPath);
   checkFileContentInZip(zipPath, pathInZip, expected);
 }
@@ -74,7 +93,8 @@ function checkFileContentInZip(zipPath, pathInZip, expectedContent, isJSON) {
   var zip = new AdmZip(zipPath);
   var entry = zip.getEntry(pathInZip);
   var actual = isJSON ? JSON.parse(zip.readAsText(entry)) : zip.readFile(entry);
-  assert.deepEqual(actual, expectedContent);
+  assert.deepEqual(actual, expectedContent,
+    'Checking ' + pathInZip + ' in ' + zipPath);
 }
 
 function checkFileContentByPathInZip(zipPath, pathInZip,
@@ -90,12 +110,28 @@ function checkFileContentByPathInZip(zipPath, pathInZip,
     checkFileContentInZip(zipPath, pathInZip, actual, isJSON);
 }
 
-function exec(command, callback) {
-  var options = {
-    maxBuffer: 400*1024
-  };
+function matchFileContentInZip(zipPath, pathInZip, matchPattern) {
+  var zip = new AdmZip(zipPath);
+  var entry = zip.getEntry(pathInZip);
+  var content = zip.readAsText(entry);
+  assert.ok(matchPattern.test(content));
+}
 
-  childProcess.exec(command, options, callback);
+function exec(command, options, callback) {
+  var opts = {
+    maxBuffer: 400 * 1024
+  };
+  if (typeof options !== 'function') {
+    for (var key in options) {
+      if (options.hasOwnProperty(key)) {
+        opts[key] = options[key];
+      }
+    }
+  } else {
+    callback = options;
+  }
+
+  childProcess.exec(command, opts, callback);
 }
 
 function emptyJsonFile(filePath) {
@@ -123,9 +159,11 @@ exports.checkError = checkError;
 exports.checkSettings = checkSettings;
 exports.checkPrefs = checkPrefs;
 exports.checkWebappsScheme = checkWebappsScheme;
-exports.checkFileInZip = checkFileInZip;
+exports.checkFilePathInZip = checkFilePathInZip;
+exports.checkFileInZip = exports.checkDirInZip = checkFileInZip;
 exports.checkFileContentInZip = checkFileContentInZip;
 exports.checkFileContentByPathInZip = checkFileContentByPathInZip;
+exports.matchFileContentInZip = matchFileContentInZip;
 exports.emptyJsonFile = emptyJsonFile;
 exports.exec = exec;
 exports.cleanupWorkspace = cleanupWorkspace;

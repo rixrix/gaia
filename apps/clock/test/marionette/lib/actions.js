@@ -15,10 +15,6 @@ function ClockAppActions() {
       // Do not require the B2G-desktop app window to have focus (as per the
       // system window manager) in order for it to do focus-related things.
       'focusmanager.testmode': true
-    },
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
     }
   });
 
@@ -63,9 +59,16 @@ ClockAppActions.prototype = {
 
     $(selector).tap();
 
+    var self = this;
     this._client.waitFor(function() {
-      return this.currentPanelId && (previousPanel !== this.currentPanelId) &&
+      var searchTimeout = self._client.searchTimeout;
+      self._client.setSearchTimeout(0);
+
+      var test = this.currentPanelId &&
+        (previousPanel !== this.currentPanelId) &&
         !$('.slide-in-right, .slide-in-left')[0];
+      self._client.setSearchTimeout(searchTimeout);
+      return test;
     }.bind(this));
   },
 

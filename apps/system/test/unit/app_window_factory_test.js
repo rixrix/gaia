@@ -4,7 +4,8 @@
    AppWindow,
    HomescreenLauncher,
    appWindowFactory,
-   MockAppWindowManager
+   MockAppWindowManager,
+   MockAppWindow
  */
 
 'use strict';
@@ -136,7 +137,7 @@ suite('system/AppWindowFactory', function() {
     window.homescreenLauncher.start();
 
     window.appWindowManager = new MockAppWindowManager();
-    requireApp('system/js/system.js');
+    requireApp('system/js/service.js');
     requireApp('system/js/browser_config_helper.js');
     requireApp('system/js/app_window_factory.js', function() {
       window.appWindowFactory = new AppWindowFactory();
@@ -151,6 +152,26 @@ suite('system/AppWindowFactory', function() {
     stubById.restore();
     window.applications = realApplications;
     realApplications = null;
+  });
+
+  suite('isLaunchingWindow', function() {
+    var app;
+    setup(function() {
+      app = new MockAppWindow();
+      this.sinon.stub(window, 'AppWindow').returns(app);
+      window.applications.ready = true;
+      window.appWindowFactory.start();
+    });
+
+    test('Launching app', function() {
+      window.dispatchEvent(new CustomEvent('webapps-launch',
+        {detail: fakeLaunchConfig1}));
+      assert.isTrue(window.appWindowFactory.isLaunchingWindow());
+      app.element.dispatchEvent(new CustomEvent('_opened', {
+        detail: app
+      }));
+      assert.isFalse(window.appWindowFactory.isLaunchingWindow());
+    });
   });
 
   suite('check for open-app queueing', function() {
@@ -321,7 +342,7 @@ suite('system/AppWindowFactory', function() {
     });
 
     test('opening a first activity', function() {
-      var stubDispatchEvent = this.sinon.stub(document.body, 'dispatchEvent');
+      var stubDispatchEvent = this.sinon.stub(window, 'dispatchEvent');
       appWindowFactory.handleEvent({
         type: 'open-app',
         detail: fakeLaunchConfig4

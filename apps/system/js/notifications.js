@@ -5,10 +5,13 @@
 
 
 var NotificationScreen = {
-  TOASTER_TIMEOUT: 5000,
+  TOASTER_TIMEOUT: 3500,
   TRANSITION_FRACTION: 0.30,
+  TRANSITION_DURATION: 300,
+  SWIPE_INERTIA: 100,
   TAP_THRESHOLD: 10,
   SCROLL_THRESHOLD: 10,
+  CLEAR_DELAY: 80,
 
   _notification: null,
   _containerWidth: null,
@@ -90,10 +93,6 @@ var NotificationScreen = {
     window.addEventListener('visibilitychange', this);
     window.addEventListener('ftuopen', this);
     window.addEventListener('ftudone', this);
-    window.addEventListener('appforeground',
-      this.clearDesktopNotifications.bind(this));
-    window.addEventListener('appopened',
-      this.clearDesktopNotifications.bind(this));
     window.addEventListener('desktop-notification-resend', this);
 
     this._sound = 'style/notifications/ringtones/notifier_firefox.opus';
@@ -177,6 +176,7 @@ var NotificationScreen = {
         break;
       case 'ftudone':
         this.toaster.addEventListener('tap', this);
+        this.updateNotificationIndicator();
         break;
       case 'desktop-notification-resend':
         this.resendExpecting = evt.detail.number;
@@ -191,20 +191,6 @@ var NotificationScreen = {
           this.clearLockScreen();
         }).bind(this), 400);
         break;
-    }
-  },
-
-  // TODO: Remove this when we ditch mozNotification (bug 952453)
-  clearDesktopNotifications: function ns_handleAppopen(evt) {
-    var manifestURL = evt.detail.manifestURL,
-        selector = '[data-manifest-u-r-l="' + manifestURL + '"]';
-
-    var nodes = this.container.querySelectorAll(selector);
-
-    for (var i = nodes.length - 1; i >= 0; i--) {
-      if (nodes[i].dataset.obsoleteAPI === 'true') {
-        this.closeNotification(nodes[i]);
-      }
     }
   },
 
@@ -245,6 +231,7 @@ var NotificationScreen = {
     this._touchStartX = evt.touches[0].pageX;
     this._touchStartY = evt.touches[0].pageY;
     this._touchPosX = 0;
+    this._touchStartTime = evt.timeStamp;
     this._touching = true;
     this._isTap = true;
   },
@@ -271,13 +258,13 @@ var NotificationScreen = {
       return;
     }
 
-    evt.preventDefault();
-
     this._touchPosX = evt.touches[0].pageX - this._touchStartX;
     if (Math.abs(this._touchPosX) >= this.TAP_THRESHOLD) {
       this._isTap = false;
+      this.notificationsContainer.style.overflow = 'hidden';
     }
     if (!this._isTap) {
+      evt.preventDefault();
       this._notification.style.transform =
         'translateX(' + this._touchPosX + 'px)';
     }
@@ -291,6 +278,8 @@ var NotificationScreen = {
     evt.preventDefault();
     this._touching = false;
 
+    this.notificationsContainer.style.overflow = '';
+
     if (this._isTap) {
       var event = new CustomEvent('tap', {
         bubbles: true,
@@ -301,12 +290,21 @@ var NotificationScreen = {
       return;
     }
 
-    if (Math.abs(this._touchPosX) >
+    // Taking speed into account to detect swipes
+    var deltaT = evt.timeStamp - this._touchStartTime;
+    var speed = this._touchPosX / deltaT;
+    var inertia = speed * this.SWIPE_INERTIA;
+    var finalDelta = Math.abs(this._touchPosX + inertia);
+
+    if (finalDelta >
         this._containerWidth * this.TRANSITION_FRACTION) {
       if (this._touchPosX < 0) {
         this._notification.classList.add('left');
       }
-      this.swipeCloseNotification();
+
+      var durationLeft = (1 - (finalDelta / this._containerWidth)) *
+                         this.TRANSITION_DURATION;
+      this.swipeCloseNotification(durationLeft);
     } else {
       this.cancelSwipe();
     }
@@ -346,7 +344,8 @@ var NotificationScreen = {
     }));
 
     // Desktop notifications are removed when they are clicked (see bug 890440)
-    if (notificationNode.dataset.type === 'desktop-notification' &&
+    if (notificationNode &&
+        notificationNode.dataset.type === 'desktop-notification' &&
         notificationNode.dataset.obsoleteAPI === 'true') {
       this.closeNotification(notificationNode);
     }
@@ -389,13 +388,11 @@ var NotificationScreen = {
 
     this.toaster.dataset.notificationId = detail.id;
     this.toaster.dataset.type = type;
-    this.toasterTitle.textContent = detail.title;
-    this.toasterTitle.lang = detail.lang;
-    this.toasterTitle.dir = dir;
+    this.toaster.lang = detail.lang;
+    this.toaster.dir = dir;
 
+    this.toasterTitle.textContent = detail.title;
     this.toasterDetail.textContent = detail.text;
-    this.toasterDetail.lang = detail.lang;
-    this.toasterDetail.dir = dir;
   },
 
   addNotification: function ns_addNotification(detail) {
@@ -412,6 +409,17 @@ var NotificationScreen = {
       this.container.querySelector('.priority-notifications') :
       this.container.querySelector('.other-notifications');
 
+    /* If dir "auto" was specified by the notification,
+     * use document direction instead because dir="auto"
+     * does not align the notification node according to
+     * the system language direction but instead it aligns
+     * every child element according to its own language
+     * which creates a UI mess we can't control by changing
+     * the system language.
+     */
+    var dir = (detail.bidi === 'auto' || typeof detail.bidi === 'undefined') ?
+      document.documentElement.dir : detail.bidi;
+
     // We need to animate the ambient indicator when the toast
     // timesout, so we skip updating it here, by passing a skip bool
     this.addUnreadNotification(detail.id, true);
@@ -422,6 +430,8 @@ var NotificationScreen = {
 
     notificationNode.dataset.notificationId = detail.id;
     notificationNode.dataset.noClear = behavior.noclear ? 'true' : 'false';
+    notificationNode.lang = detail.lang;
+    notificationNode.dataset.predefinedDir = detail.bidi;
 
     notificationNode.dataset.obsoleteAPI = 'false';
     if (typeof detail.id === 'string' &&
@@ -439,20 +449,14 @@ var NotificationScreen = {
       notificationNode.appendChild(icon);
     }
 
-    var dir = (detail.bidi === 'ltr' ||
-               detail.bidi === 'rtl') ?
-          detail.bidi : 'auto';
-
     var titleContainer = document.createElement('div');
     titleContainer.classList.add('title-container');
-    titleContainer.lang = detail.lang;
-    titleContainer.dir = dir;
 
     var title = document.createElement('div');
     title.classList.add('title');
     title.textContent = detail.title;
-    title.lang = detail.lang;
-    title.dir = dir;
+    title.setAttribute('dir', 'auto');
+
     titleContainer.appendChild(title);
 
     var time = document.createElement('span');
@@ -467,8 +471,6 @@ var NotificationScreen = {
     var message = document.createElement('div');
     message.classList.add('detail');
     message.textContent = detail.text;
-    message.lang = detail.lang;
-    message.dir = dir;
     notificationNode.appendChild(message);
 
     var notifSelector = '[data-notification-id="' + detail.id + '"]';
@@ -485,7 +487,11 @@ var NotificationScreen = {
       } else if (oldIcon) {
         oldNotif.removeChild(oldIcon);
       }
+      // but we still need to update type, lang and dir.
       oldNotif.dataset.type = type;
+      oldNotif.lang = detail.lang;
+      oldNotif.dataset.predefinedDir = detail.bidi;
+
       notificationNode = oldNotif;
     } else {
       notificationContainer.insertBefore(notificationNode,
@@ -513,7 +519,7 @@ var NotificationScreen = {
     // Notification toaster
     if (notify) {
       this.updateToaster(detail, type, dir);
-      if (this.lockscreenPreview || !window.System.locked) {
+      if (this.lockscreenPreview || !window.Service.locked) {
         this.toaster.classList.add('displayed');
 
         if (this._toasterTimeout) {
@@ -529,7 +535,7 @@ var NotificationScreen = {
 
     // Adding it to the lockscreen if locked and the privacy setting
     // does not prevent it.
-    if (System.locked && this.lockscreenPreview) {
+    if (Service.locked && this.lockscreenPreview) {
       this.addLockScreenNotification(detail.id,
         notificationNode.cloneNode(true));
     }
@@ -552,7 +558,7 @@ var NotificationScreen = {
           ringtonePlayer.pause();
           ringtonePlayer.removeAttribute('src');
           ringtonePlayer.load();
-        }, 2000);
+        }, 4000);
       }
 
       if (this.vibrates) {
@@ -597,7 +603,7 @@ var NotificationScreen = {
       }));
   },
 
-  swipeCloseNotification: function ns_swipeCloseNotification() {
+  swipeCloseNotification: function ns_swipeCloseNotification(duration) {
     var notification = this._notification;
     this._notification = null;
 
@@ -627,6 +633,8 @@ var NotificationScreen = {
     });
 
     notification.classList.add('disappearing');
+    duration = duration || this.TRANSITION_DURATION;
+    notification.style.transitionDuration = duration + 'ms';
     notification.style.transform = '';
   },
 
@@ -657,7 +665,12 @@ var NotificationScreen = {
 
   updateNotificationIndicator: function ns_updateNotificationIndicator() {
     if (this.unreadNotifications.length) {
-      this.ambientIndicator.className = 'unread';
+      // If the ftu is running we should not show the ambient indicator
+      // because the statusbar is not accessible
+      if (Service.query('isFtuRunning')) {
+        return;
+      }
+      this.ambientIndicator.classList.add('unread');
       navigator.mozL10n.setAttributes(
         this.ambientIndicator,
         'statusbarNotifications-unread',
@@ -728,11 +741,38 @@ var NotificationScreen = {
 
   clearAll: function ns_clearAll() {
     var notifications = this.container.querySelectorAll('.notification');
-    for (var notification of notifications) {
-      if (notification.dataset.noClear === 'true') {
-        continue;
+    var clearable = [].slice.apply(notifications)
+                      .filter(function isClearable(notification) {
+                        return notification.dataset.noClear !== 'true';
+                      });
+    var notification;
+    this.clearAllButton.disabled = true;
+    // When focus is on a disabled element, Gecko will not dispatch any keyboard
+    // events to it (the disabled element) and its parent.
+    // The clearAll Button is focused but disabled right away after
+    // user click it. We need to blur the focus immediately, otherwise System
+    // app could not receive any keyboard events. See more detail on
+    // http://bugzil.la/1106844
+    this.clearAllButton.blur();
+    if (!clearable.length) {
+      return;
+    }
+    // Adding a callback to the last cleared notification to defer
+    // the destroying of the notifications after the last disappear
+    var lastClearable = clearable[clearable.length - 1];
+    var removeAll = (function removeAll() {
+      lastClearable.removeEventListener('transitionend', removeAll);
+      for (var notification of clearable) {
+        this.closeNotification(notification);
       }
-      this.closeNotification(notification);
+    }).bind(this);
+    lastClearable.addEventListener('transitionend', removeAll);
+
+    for (var index = 0, max = clearable.length; index < max; index++) {
+      notification = clearable[index];
+      notification.style.transitionDelay = (this.CLEAR_DELAY * index) + 'ms';
+      notification.classList.add('disappearing-via-clear-all');
+      notification.style.transform = '';
     }
   },
 

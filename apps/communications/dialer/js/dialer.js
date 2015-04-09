@@ -1,10 +1,9 @@
 'use strict';
 
 /* global AccessibilityHelper, CallLog, CallLogDBManager, Contacts,
-          KeypadManager,LazyL10n, LazyLoader, MmiManager, Notification,
-          NotificationHelper, SettingsListener, SimPicker, SimSettingsHelper,
-          SuggestionBar, TelephonyHelper, TonePlayer, Utils, Voicemail,
-          MozActivity */
+          KeypadManager, LazyLoader, MmiManager, Notification,
+          NotificationHelper, SettingsListener, SimSettingsHelper,
+          SuggestionBar, TelephonyHelper, Utils, Voicemail, MozActivity */
 
 var NavbarManager = {
   init: function nm_init() {
@@ -222,47 +221,52 @@ var CallHandler = (function callHandler() {
   function sendNotification(number, serviceId) {
     LazyLoader.load('/shared/js/dialer/utils.js', function() {
       Contacts.findByNumber(number, function lookup(contact, matchingTel) {
-        LazyL10n.get(function localized(_) {
-          var title;
-          if (navigator.mozIccManager.iccIds.length > 1) {
-            title = _('missedCallMultiSims', {n: serviceId + 1});
-          } else {
-            title = _('missedCall');
-          }
+        var title;
+        if (navigator.mozIccManager.iccIds.length > 1) {
+          title = { id: 'missedCallMultiSims', args: { n: serviceId + 1 } };
+        } else {
+          title = 'missedCall';
+        }
 
-          var body;
-          if (!number) {
-            body = _('from-withheld-number');
-          } else if (contact) {
-            var primaryInfo = Utils.getPhoneNumberPrimaryInfo(matchingTel,
-              contact);
-            if (primaryInfo) {
-              if (primaryInfo !== matchingTel.value) {
-                // primaryInfo is an object here
-                body = _('from-contact', {contact: primaryInfo.toString()});
-              } else {
-                body = _('from-number', {number: primaryInfo});
-              }
+        var body;
+        if (!number) {
+          body = 'from-withheld-number';
+        } else if (contact) {
+          var primaryInfo = Utils.getPhoneNumberPrimaryInfo(matchingTel,
+            contact);
+          if (primaryInfo) {
+            if (primaryInfo !== matchingTel.value) {
+              // primaryInfo is an object here
+              body = {
+                id: 'from-contact',
+                args: { contact: primaryInfo.toString() }
+              };
             } else {
-              body = _('from-withheld-number');
+              body = { id: 'from-number', args: { number: primaryInfo } };
             }
           } else {
-            body = _('from-number', {number: number});
+            body = 'from-withheld-number';
           }
+        } else {
+          body = { id: 'from-number', args: { number: number } };
+        }
 
-          navigator.mozApps.getSelf().onsuccess = function getSelfCB(evt) {
-            var app = evt.target.result;
+        navigator.mozApps.getSelf().onsuccess = function getSelfCB(evt) {
+          var app = evt.target.result;
 
-            var iconURL = NotificationHelper.getIconURI(app, 'dialer');
-            var clickCB = function() {
-              app.launch('dialer');
-              window.location.hash = '#call-log-view';
-            };
-            var notification =
-              new Notification(title, {body: body, icon: iconURL});
-            notification.addEventListener('click', clickCB);
+          var iconURL = NotificationHelper.getIconURI(app, 'dialer');
+          var clickCB = function() {
+            app.launch('dialer');
+            window.location.hash = '#call-log-view';
           };
-        });
+
+          NotificationHelper.send(title, {
+            bodyL10n: body,
+            icon: iconURL
+          }).then(function(notification) {
+            notification.addEventListener('click', clickCB);
+          });
+        };
       });
     });
   }
@@ -376,8 +380,11 @@ var CallHandler = (function callHandler() {
         SimSettingsHelper.getCardIndexFrom('outgoingCall',
         function(defaultCardIndex) {
           if (defaultCardIndex === SimSettingsHelper.ALWAYS_ASK_OPTION_VALUE) {
-            LazyLoader.load(['/shared/js/sim_picker.js'], function() {
-              SimPicker.getOrPick(defaultCardIndex, phoneNumber, function(ci) {
+            LazyLoader.load(['/shared/js/component_utils.js',
+                             '/shared/elements/gaia_sim_picker/script.js'],
+            function() {
+              var simPicker = document.getElementById('sim-picker');
+              simPicker.getOrPick(defaultCardIndex, phoneNumber, function(ci) {
                 CallHandler.call(phoneNumber, ci);
               });
               // Show the dialer so the user can select the SIM.
@@ -433,12 +440,8 @@ var CallHandler = (function callHandler() {
       return;
     }
 
-    if (MmiManager.isMMI(number, cardIndex)) {
-      if (number === '*#06#') {
-        MmiManager.showImei();
-      } else {
-        MmiManager.send(number, cardIndex);
-      }
+    if (MmiManager.isImei(number)) {
+      MmiManager.showImei();
 
       // Clearing the code from the dialer screen gives the user immediate
       // feedback.
@@ -486,16 +489,15 @@ var CallHandler = (function callHandler() {
       document.addEventListener('visibilitychange', releaseWakeLock);
     }
 
-    if (document.hidden && evt.sessionEnded) {
+    if (!document.hidden || evt.session) {
+      MmiManager.handleMMIReceived(evt.message, evt.session, evt.serviceId);
+    } else {
       /* If the dialer is not visible and the session ends with this message
        * then this is most likely an unsollicited message. To prevent
        * interrupting the user we post a notification for it instead of
        * displaying the dialer UI. */
       MmiManager.sendNotification(evt.message, evt.serviceId)
                 .then(releaseWakeLock);
-    } else {
-      MmiManager.handleMMIReceived(evt.message, evt.sessionEnded,
-                                   evt.serviceId);
     }
   }
 
@@ -547,23 +549,3 @@ window.onresize = function(e) {
     NavbarManager.show();
   }
 };
-
-// If the app loses focus, close the audio stream.
-document.addEventListener('visibilitychange', function visibilitychanged() {
-  // Don't bother stopping the tone player if it's not been started
-  if (!TonePlayer) {
-    return;
-  }
-
-  if (!document.hidden) {
-    TonePlayer.ensureAudio();
-  } else {
-    // Reset the audio stream. This ensures that the stream is shutdown
-    // *immediately*.
-    TonePlayer.trashAudio();
-    // Just in case stop any dtmf tone
-    if (navigator.mozTelephony && navigator.mozTelephony.stopTone) {
-      navigator.mozTelephony.stopTone();
-    }
-  }
-});

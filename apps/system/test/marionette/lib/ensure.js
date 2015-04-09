@@ -3,7 +3,7 @@
   var Ensure = function() {};
   Ensure.prototype.start =
   function(client) {
-    this.Actions = require('marionette-client').Actions;
+    this._actions = client.loader.getActions();
     this.client = client;
     this.elements = {};
     this.footprintCounter = 0;
@@ -80,7 +80,12 @@
       window.wrappedJSObject.close();
     });
     this.client.waitFor((function() {
+      var searchTimeout = this.client.searchTimeout;
+      this.client.setSearchTimeout(0);
+
       var frames = this.client.findElements('iframe[mozapp]');
+      this.client.setSearchTimeout(searchTimeout);
+
       return frames.reduce(function(prev, frame) {
         if (frame.getAttribute('mozapp').match(origin)) {
           return false;
@@ -281,9 +286,9 @@
    */
   Ensure.prototype.actions =
   function() {
-    var actions = new this.Actions(this.client);
+    var actions = this._actions;
     // Decorate methods according to different rules.
-    var result = Object.keys(this.Actions.prototype)
+    var result = Object.keys(this._actions.__proto__)
       .reduce((function (acc, fname) {
         switch (fname) {
           // These functions need to partial apply the element on it.
@@ -392,8 +397,7 @@
    */
   Ensure.prototype.sleep =
   function(timeout) {
-    var actions = new this.Actions(this.client);
-    actions.wait(timeout).perform();
+    this._actions.wait(timeout).perform();
     return this;
   };
 

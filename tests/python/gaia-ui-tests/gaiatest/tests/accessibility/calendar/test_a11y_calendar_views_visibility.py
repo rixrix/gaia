@@ -17,7 +17,7 @@ class TestCalendarViewsVisibilityAccessibility(GaiaTestCase):
         self.views = {
             'time_views': self.marionette.find_element(*self.calendar._time_views_locator),
             'current_day': self.marionette.find_element(
-                *self.calendar._current_months_day_locator),
+                *self.calendar._current_month_day_agenda_locator),
             'month': self.marionette.find_element(
                 *self.calendar._current_monthly_calendar_locator),
             'day': self.marionette.find_element(*self.calendar._day_view_locator),
@@ -26,15 +26,15 @@ class TestCalendarViewsVisibilityAccessibility(GaiaTestCase):
             'advanced_settings': self.marionette.find_element(
                 *self.calendar._advanced_settings_view_locator),
             'modify_event': self.marionette.find_element(*self.calendar._modify_event_view_locator),
-            'event': self.marionette.find_element(*self.calendar._event_view_locator)
+            'event': self.marionette.find_element(*self.calendar._event_view_locator),
+            'create_account': self.marionette.find_element(
+                *self.calendar._create_account_view_locator),
+            'modify_account': self.marionette.find_element(
+                *self.calendar._modify_account_view_locator)
         }
 
         self.event_title = 'title'
-        new_event = self.calendar.a11y_click_add_event_button()
-        # create a new event
-        new_event.a11y_fill_event_title(self.event_title)
-        new_event.a11y_click_save_event()
-        self.calendar.wait_for_events(1)
+        self.calendar.a11y_create_event(self.event_title)
 
     def test_a11y_calendar_views_visibility(self):
 
@@ -55,6 +55,23 @@ class TestCalendarViewsVisibilityAccessibility(GaiaTestCase):
         # Advanced settings
         self.accessibility.click(self.marionette.find_element(
             *self.calendar.settings._advanced_settings_button_locator))
+        test_a11y_visible('advanced_settings')
+
+        # Create account
+        self.accessibility.click(self.marionette.find_element(
+            *self.calendar._create_account_button_locator))
+        test_a11y_visible('create_account')
+
+        # Modify account
+        self.accessibility.click(self.calendar.account('caldav'))
+        test_a11y_visible('modify_account')
+
+        # Create account
+        self.calendar.a11y_click_modify_account_back()
+        test_a11y_visible('create_account')
+
+        # Advanced settings
+        self.calendar.a11y_click_create_account_back()
         test_a11y_visible('advanced_settings')
 
         # Settings

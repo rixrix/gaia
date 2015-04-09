@@ -1,6 +1,7 @@
 'use strict';
 /* global MocksHelper, Search */
-
+/* global MockNavigatorSettings */
+require('/shared/test/unit/mocks/mock_navigator_moz_settings.js');
 require('/shared/test/unit/mocks/mock_moz_activity.js');
 require('/shared/test/unit/mocks/mock_l10n.js');
 
@@ -25,9 +26,16 @@ var mocksForMarketplaceProvider = new MocksHelper([
 suite('search/providers/marketplace', function() {
   mocksForMarketplaceProvider.attachTestHelpers();
 
-  var fakeElement, stubById, subject;
+  var fakeElement, stubById, subject, realMozSettings;
 
   setup(function(done) {
+    realMozSettings = navigator.mozSettings;
+    navigator.mozSettings = MockNavigatorSettings;
+
+    navigator.mozSettings.createLock().set({
+      'search.marketplace.url': 'http://localhost'
+    });
+
     fakeElement = document.createElement('div');
     fakeElement.style.cssText = 'height: 100px; display: block;';
     stubById = this.sinon.stub(document, 'getElementById')
@@ -73,9 +81,13 @@ suite('search/providers/marketplace', function() {
         assert.equal(results.length, 2);
         done();
       });
-      var req = requests[0];
-      req.responseText = JSON.stringify(marketplaceContent);
-      req.onload();
+
+      // setTimeout to ensure that the search microtask fires.
+      setTimeout(function() {
+        var req = requests[0];
+        req.responseText = JSON.stringify(marketplaceContent);
+        req.onload();
+      });
     });
   });
 });

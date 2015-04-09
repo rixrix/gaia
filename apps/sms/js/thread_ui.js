@@ -6,10 +6,12 @@
          ActivityPicker, ThreadListUI, OptionMenu, Threads, Contacts,
          Attachment, WaitingScreen, MozActivity, LinkActionHandler,
          ActivityHandler, TimeHeaders, ContactRenderer, Draft, Drafts,
-         Thread, MultiSimActionButton, LazyLoader, Navigation, Promise,
-         Dialog, SharedComponents,
+         Thread, MultiSimActionButton, Navigation, Promise, LazyLoader,
+         SharedComponents,
          Errors,
-         EventDispatcher
+         EventDispatcher,
+         SelectionHandler,
+         TaskRunner
 */
 /*exported ThreadUI */
 
@@ -89,7 +91,9 @@ var ThreadUI = {
       'message-status',
       'not-downloaded',
       'recipient',
-      'date-group'
+      'date-group',
+      'header',
+      'group-header'
     ];
 
     AttachmentMenu.init('attachment-options-menu');
@@ -141,10 +145,6 @@ var ThreadUI = {
       'scroll', this.manageScroll.bind(this)
     );
 
-    this.checkUncheckAllButton.addEventListener(
-      'click', this.toggleCheckedAll.bind(this)
-    );
-
     this.editHeader.addEventListener(
       'action', this.cancelEdit.bind(this)
     );
@@ -173,18 +173,12 @@ var ThreadUI = {
       'click', this.onNewMessageNoticeClick.bind(this)
     );
 
-    this.container.addEventListener(
-      'click', this.handleEvent.bind(this)
-    );
-    this.container.addEventListener(
-      'contextmenu', this.handleEvent.bind(this)
-    );
-    this.editForm.addEventListener(
-      'submit', this.handleEvent.bind(this)
-    );
-    this.composeForm.addEventListener(
-      'submit', this.handleEvent.bind(this)
-    );
+    // These events will be handled in handleEvent function
+    this.container.addEventListener('click', this);
+    this.container.addEventListener('contextmenu', this);
+    this.editForm.addEventListener('submit', this);
+    this.composeForm.addEventListener('submit', this);
+
     // For picking a contact from Contacts. It's mouse down for
     // avoiding weird effect of keyboard, as in 'send' button.
     this.contactPickButton.addEventListener(
@@ -225,13 +219,10 @@ var ThreadUI = {
       return tmpls;
     }, {});
 
-    this.initRecipients();
-
     Compose.init('messages-compose-form');
 
     // In case of input, we have to resize the input following UX Specs.
     Compose.on('input', this.messageComposerInputHandler.bind(this));
-    Compose.on('type', this.onMessageTypeChange.bind(this));
     Compose.on('subject-change', this.onSubjectChange.bind(this));
     Compose.on('segmentinfochange', this.onSegmentInfoChange.bind(this));
 
@@ -271,6 +262,9 @@ var ThreadUI = {
     this.shouldChangePanelNextEvent = false;
 
     this.showErrorInFailedEvent = '';
+
+    // Bound methods to be detachables
+    this.onMessageTypeChange = this.onMessageTypeChange.bind(this);
   },
 
   onVisibilityChange: function thui_onVisibilityChange(e) {
@@ -289,7 +283,6 @@ var ThreadUI = {
 
       if (isAutoSaveRequired) {
         ThreadUI.saveDraft({preserve: true, autoSave: true});
-        Drafts.store();
       }
     }
   },
@@ -422,16 +415,6 @@ var ThreadUI = {
     }
   },
 
-  getSelectedInputs: function thui_getSelectedInputs() {
-    if (this.container) {
-      return Array.prototype.slice.call(
-        this.container.querySelectorAll('input[type=checkbox]:checked')
-      );
-    } else {
-      return [];
-    }
-  },
-
   setHeaderAction: function thui_setHeaderAction(icon) {
     this.header.setAttribute('action', icon);
   },
@@ -463,17 +446,16 @@ var ThreadUI = {
     }
   },
 
-  showMaxLengthNotice: function thui_showMaxLengthNotice(l10nKey) {
-    Compose.lock = true;
-    this.maxLengthNotice.querySelector('p').setAttribute(
-      'data-l10n-id',
-      l10nKey
+  showMaxLengthNotice: function thui_showMaxLengthNotice(opts) {
+    Compose.lock();
+    navigator.mozL10n.setAttributes(
+      this.maxLengthNotice.querySelector('p'), opts.l10nId, opts.l10nArgs
     );
     this.maxLengthNotice.classList.remove('hide');
   },
 
   hideMaxLengthNotice: function thui_hideMaxLengthNotice() {
-    Compose.lock = false;
+    Compose.unlock();
     this.maxLengthNotice.classList.add('hide');
   },
 
@@ -501,6 +483,7 @@ var ThreadUI = {
    * visible.
    */
   beforeEnter: function thui_beforeEnter(args) {
+    this.clearConvertNoticeBanners();
     this.setHeaderAction(ActivityHandler.isInActivity() ? 'close' : 'back');
 
     Recipients.View.isFocusable = true;
@@ -514,8 +497,6 @@ var ThreadUI = {
           Settings.SERVICE_ID_KEYS.smsServiceId
       );
 
-      var simPickerElt = document.getElementById('sim-picker');
-      LazyLoader.load([simPickerElt]);
       this.initSentAudio();
     }
 
@@ -540,6 +521,13 @@ var ThreadUI = {
     Threads.currentId = args.id;
 
     var prevPanel = args.meta.prev && args.meta.prev.panel;
+
+    // If transitioning from composer, we don't need to notify about type
+    // conversion but only after the type of the thread is set
+    // (afterEnterThread)
+    if (prevPanel !== 'composer') {
+      this.enableConvertNoticeBanners();
+    }
 
     if (prevPanel !== 'group-view' && prevPanel !== 'report-view') {
       this.initializeRendering();
@@ -598,14 +586,16 @@ var ThreadUI = {
 
       // Populate draft if there is one
       // TODO merge with handleDraft ? Bug 1010216
-      var thread = Threads.get(threadId);
-      if (thread.hasDrafts) {
-        this.draft = thread.drafts.latest;
-        Compose.fromDraft(this.draft);
-        this.draft.isEdited = false;
-      } else {
-        this.draft = null;
-      }
+      Drafts.request().then(() => {
+        var thread = Threads.get(threadId);
+        if (thread.hasDrafts) {
+          this.draft = thread.drafts.latest;
+          Compose.fromDraft(this.draft);
+          this.draft.isEdited = false;
+        } else {
+          this.draft = null;
+        }
+      });
     }
 
     ThreadListUI.mark(threadId, 'read');
@@ -613,15 +603,41 @@ var ThreadUI = {
     // nothing urgent, let's do it when the main thread has some time
     setTimeout(MessageManager.markThreadRead.bind(MessageManager, threadId));
 
+    // Enable notifications redirected from composer only after the user enters.
+    if (prevPanel === 'composer') {
+      this.enableConvertNoticeBanners();
+    }
+
+    if (args.focusComposer) {
+      Compose.focus();
+    }
+
     return Utils.closeNotificationsForThread(threadId);
   },
 
   beforeLeave: function thui_beforeLeave(args) {
+    this.disableConvertNoticeBanners();
+
+    var nextPanel = args.meta.next && args.meta.next.panel;
+
     // This should be in afterLeave, but the edit mode interface does not seem
     // to slide correctly. Bug 1009541
     this.cancelEdit();
 
+    if (Navigation.isCurrentPanel('thread')) {
+      // Revoke thumbnail URL for every image attachment rendered within thread
+      var nodes = this.container.querySelectorAll(
+        '.attachment-container[data-thumbnail]'
+      );
+      Array.from(nodes).forEach((node) => {
+        window.URL.revokeObjectURL(node.dataset.thumbnail);
+      });
+    }
+
     // TODO move most of back() here: Bug 1010223
+    if (nextPanel !== 'group-view' && nextPanel !== 'report-view') {
+      this.cleanFields();
+    }
   },
 
   afterLeave: function thui_afterLeave(args) {
@@ -633,7 +649,9 @@ var ThreadUI = {
     if (!Navigation.isCurrentPanel('composer')) {
       this.threadMessages.classList.remove('new');
 
-      this.recipients.length = 0;
+      if (this.recipients) {
+        this.recipients.length = 0;
+      }
 
       this.toggleRecipientSuggestions();
     }
@@ -744,6 +762,8 @@ var ThreadUI = {
   },
 
   beforeEnterComposer: function thui_beforeEnterComposer(args) {
+    this.enableConvertNoticeBanners();
+
     // TODO add the activity/forward/draft stuff here
     // instead of in afterEnter: Bug 1010223
 
@@ -890,9 +910,22 @@ var ThreadUI = {
       clearTimeout(this._convertNoticeTimeout);
     }
 
-    this._convertNoticeTimeout = setTimeout(function hideConvertNotice() {
-      this.convertNotice.classList.add('hide');
-    }.bind(this), this.CONVERTED_MESSAGE_DURATION);
+    this._convertNoticeTimeout = setTimeout(
+      this.clearConvertNoticeBanners.bind(this),
+      this.CONVERTED_MESSAGE_DURATION
+    );
+  },
+
+  clearConvertNoticeBanners: function thui_clearConvertNoticeBanner() {
+    this.convertNotice.classList.add('hide');
+  },
+
+  enableConvertNoticeBanners: function thui_enableConvertNoticeBanner() {
+    Compose.on('type', this.onMessageTypeChange);
+  },
+
+  disableConvertNoticeBanners: function thui_disableConvertNoticeBanner() {
+    Compose.off('type', this.onMessageTypeChange);
   },
 
   onSubjectChange: function thui_onSubjectChange() {
@@ -968,11 +1001,12 @@ var ThreadUI = {
   updateComposerHeader: function thui_updateComposerHeader() {
     var recipientCount = this.recipients.numbers.length;
     if (recipientCount > 0) {
-      navigator.mozL10n.setAttributes(this.headerText, 'recipient', {
-          n: recipientCount
+      this.setHeaderContent({
+        id: 'recipient',
+        args: { n: recipientCount }
       });
     } else {
-      navigator.mozL10n.setAttributes(this.headerText, 'newMessage');
+      this.setHeaderContent('newMessage');
     }
   },
 
@@ -1049,7 +1083,8 @@ var ThreadUI = {
   },
 
   close: function thui_close() {
-    return this._onNavigatingBack().then(function() {
+    return this._onNavigatingBack().then(() => {
+      this.cleanFields();
       ActivityHandler.leaveActivity();
     }).catch(function(e) {
       // If we don't have any error that means that action was rejected
@@ -1061,21 +1096,32 @@ var ThreadUI = {
   },
 
   back: function thui_back() {
-    if (Navigation.isCurrentPanel('group-view') ||
-        Navigation.isCurrentPanel('report-view')) {
-      Navigation.toPanel('thread', { id: Threads.currentId });
-      this.updateHeaderData();
-
-      return Promise.resolve();
-    }
-
     return this._onNavigatingBack().then(function() {
-      this.cleanFields();
       Navigation.toPanel('thread-list');
     }.bind(this)).catch(function(e) {
       e && console.error('Unexpected error while navigating back: ', e);
 
       return Promise.reject(e);
+    });
+  },
+
+  /**
+   * Navigates user to Composer panel with custom parameters.
+   * @param {*} parameters Optional navigation parameters.
+   * @returns {Promise} Promise that is resolved once navigation is completed.
+   */
+  navigateToComposer: function(parameters) {
+    if (Compose.isEmpty()) {
+      return Navigation.toPanel('composer', parameters);
+    }
+
+    return Utils.confirm(
+      'unsent-message-text',
+      'unsent-message-title',
+      { text: 'unsent-message-option-discard', className: 'danger' }
+    ).then(() => {
+      this.discardDraft();
+      return Navigation.toPanel('composer', parameters);
     });
   },
 
@@ -1207,10 +1253,15 @@ var ThreadUI = {
 
     if (Settings.mmsSizeLimitation) {
       if (Compose.size > Settings.mmsSizeLimitation) {
-        this.showMaxLengthNotice('message-exceeded-max-length');
+        this.showMaxLengthNotice({
+          l10nId: 'multimedia-message-exceeded-max-length',
+          l10nArgs: {
+            mmsSize: (Settings.mmsSizeLimitation / 1024).toFixed(0)
+          }
+        });
         return false;
       } else if (Compose.size === Settings.mmsSizeLimitation) {
-        this.showMaxLengthNotice('messages-max-length-text');
+        this.showMaxLengthNotice({ l10nId: 'messages-max-length-text' });
         return true;
       }
     }
@@ -1239,15 +1290,14 @@ var ThreadUI = {
     }
 
     // If there is no messageContainer we have to create it
-    messageDateGroup = this._htmlStringToDomNode(
-      this.tmpl.dateGroup.interpolate({
-        id: 'mc_' + startOfDayTimestamp,
-        timestamp: startOfDayTimestamp.toString(),
-        headerTimeUpdate: 'repeat',
-        headerTime: messageTimestamp.toString(),
-        headerDateOnly: 'true'
-      })
-    );
+    messageDateGroup = this.tmpl.dateGroup.prepare({
+      id: 'mc_' + startOfDayTimestamp,
+      timestamp: startOfDayTimestamp.toString(),
+      headerTimeUpdate: 'repeat',
+      headerTime: messageTimestamp.toString(),
+      headerDateOnly: 'true'
+    }).toDocumentFragment().firstElementChild;
+
     header = messageDateGroup.firstElementChild;
     messageContainer = messageDateGroup.lastElementChild;
 
@@ -1280,7 +1330,9 @@ var ThreadUI = {
       phoneDetails = Utils.getPhoneDetails(number, address);
 
       if (phoneDetails) {
-        carrierTag.innerHTML = SharedComponents.phoneDetails(phoneDetails);
+        carrierTag.innerHTML = SharedComponents.phoneDetails(
+          phoneDetails
+        ).toString();
 
         threadMessages.classList.add('has-carrier');
       } else {
@@ -1294,7 +1346,7 @@ var ThreadUI = {
 
   // Method for updating the header with the info retrieved from Contacts API
   updateHeaderData: function thui_updateHeaderData() {
-    var thread, number, others;
+    var thread, number;
 
     thread = Threads.active;
 
@@ -1303,7 +1355,6 @@ var ThreadUI = {
     }
 
     number = thread.participants[0];
-    others = thread.participants.length - 1;
 
     // Add data to contact activity interaction
     this.headerText.dataset.number = number;
@@ -1321,14 +1372,15 @@ var ThreadUI = {
         var contactName = details.title || number;
         this.headerText.dataset.isContact = !!details.isContact;
         this.headerText.dataset.title = contactName;
-        navigator.mozL10n.setAttributes(
-          this.headerText,
-          'thread-header-text',
-          {
+
+        var headerContentTemplate = thread.participants.length > 1 ?
+          this.tmpl.groupHeader : this.tmpl.header;
+        this.setHeaderContent({
+          html: headerContentTemplate.interpolate({
             name: contactName,
-            n: others
-          }
-        );
+            participantCount: (thread.participants.length - 1).toString()
+          })
+        });
 
         this.updateCarrier(thread, contacts);
         resolve();
@@ -1336,10 +1388,42 @@ var ThreadUI = {
     }.bind(this));
   },
 
+  /**
+   * Updates header content since it's used for different panels and should be
+   * carefully handled for every case. In Thread panel header contains HTML
+   * markup to support bidirectional content, but other panels still use it with
+   * mozL10n.setAttributes as it would contain only localizable text. We should
+   * get rid of this method once bug 961572 and bug 1011085 are landed.
+   * @param {string|{ html: string }|{id: string, args: Object }} contentL10n
+   * Should be either safe HTML string or l10n properties.
+   * @public
+   */
+  setHeaderContent: function thui_setHeaderContent(contentL10n) {
+    if (typeof contentL10n === 'string') {
+      contentL10n = { id: contentL10n };
+    }
+
+    if (contentL10n.id) {
+      // Remove rich HTML content before we set l10n attributes as l10n lib
+      // fails in this case
+      this.headerText.firstElementChild && (this.headerText.textContent = '');
+      navigator.mozL10n.setAttributes(
+        this.headerText, contentL10n.id, contentL10n.args
+      );
+      return;
+    }
+
+    if (contentL10n.html) {
+      this.headerText.removeAttribute('data-l10n-id');
+      this.headerText.innerHTML = contentL10n.html;
+      return;
+    }
+  },
+
   initializeRendering: function thui_initializeRendering() {
     // Clean fields
     this.cleanFields();
-    this.checkInputs();
+
     // Clean list of messages
     this.container.innerHTML = '';
     // Initialize infinite scroll params
@@ -1356,16 +1440,15 @@ var ThreadUI = {
   // Method for rendering the first chunk at the beginning
   showFirstChunk: function thui_showFirstChunk() {
     // Show chunk of messages
-    ThreadUI.showChunkOfMessages(this.CHUNK_SIZE);
+    this.showChunkOfMessages(this.CHUNK_SIZE);
     // Boot update of headers
     TimeHeaders.updateAll('header[data-time-update]');
     // Go to Bottom
-    ThreadUI.scrollViewToBottom();
+    this.scrollViewToBottom();
   },
 
   createMmsContent: function thui_createMmsContent(dataArray) {
     var container = document.createDocumentFragment();
-    var scrollViewToBottom = ThreadUI.scrollViewToBottom.bind(ThreadUI);
 
     dataArray.forEach(function(messageData) {
 
@@ -1373,7 +1456,7 @@ var ThreadUI = {
         var attachment = new Attachment(messageData.blob, {
           name: messageData.name
         });
-        var mediaElement = attachment.render(scrollViewToBottom);
+        var mediaElement = attachment.render();
         container.appendChild(mediaElement);
         attachmentMap.set(mediaElement, attachment);
       }
@@ -1394,9 +1477,11 @@ var ThreadUI = {
 
   // Method for rendering the list of messages using infinite scroll
   renderMessages: function thui_renderMessages(threadId, callback) {
+    // Use taskRunner to make sure message appended in proper order
+    var taskQueue = new TaskRunner();
     var onMessagesRendered = (function messagesRendered() {
       if (this.messageIndex < this.CHUNK_SIZE) {
-        this.showFirstChunk();
+        taskQueue.push(this.showFirstChunk.bind(this));
       }
 
       if (callback) {
@@ -1406,13 +1491,19 @@ var ThreadUI = {
 
     var onRenderMessage = (function renderMessage(message) {
       if (this._stopRenderingNextStep) {
-        // stop the iteration
+        // stop the iteration and clear the taskQueue
+        taskQueue = null;
         return false;
       }
-      this.appendMessage(message,/*hidden*/ true);
+      taskQueue.push(() => {
+        if (!this._stopRenderingNextStep) {
+          return this.appendMessage(message,/*hidden*/ true);
+        }
+        return false;
+      });
       this.messageIndex++;
       if (this.messageIndex === this.CHUNK_SIZE) {
-        this.showFirstChunk();
+        taskQueue.push(this.showFirstChunk.bind(this));
       }
       return true;
     }).bind(this);
@@ -1443,7 +1534,7 @@ var ThreadUI = {
   _createNotDownloadedHTML:
   function thui_createNotDownloadedHTML(message, classNames) {
     // default strings:
-    var messageL10nId = 'not-downloaded-attachment';
+    var messageL10nId = 'tobedownloaded-attachment';
     var downloadL10nId = 'download-attachment';
 
     // assuming that incoming message only has one deliveryInfo
@@ -1587,7 +1678,7 @@ var ThreadUI = {
       timestamp: String(message.timestamp),
       subject: String(message.subject),
       simInformationHTML: simInformationHTML,
-      messageStatusHTML: this.getMessageStatusMarkup(messageStatus)
+      messageStatusHTML: this.getMessageStatusMarkup(messageStatus).toString()
     }, {
       safe: ['bodyHTML', 'simInformationHTML', 'messageStatusHTML']
     });
@@ -1600,17 +1691,26 @@ var ThreadUI = {
     }
 
     if (message.type === 'mms' && !isNotDownloaded && !noAttachment) { // MMS
-      SMIL.parse(message, function(slideArray) {
-        pElement.appendChild(ThreadUI.createMmsContent(slideArray));
+      return this.mmsContentParser(message).then((mmsContent) => {
+        pElement.appendChild(mmsContent);
+        return messageDOM;
       });
     }
 
-    return messageDOM;
+    return Promise.resolve(messageDOM);
+  },
+
+  mmsContentParser: function thui_mmsContentParser(message) {
+    return new Promise((resolver) => {
+      SMIL.parse(message, (slideArray) => {
+        resolver(this.createMmsContent(slideArray));
+      });
+    });
   },
 
   getMessageStatusMarkup: function(status) {
     return ['read', 'delivered', 'sending', 'error'].indexOf(status) >= 0 ?
-      this.tmpl.messageStatus.interpolate({
+      this.tmpl.messageStatus.prepare({
         statusL10nId: 'message-delivery-status-' + status
       }) : '';
   },
@@ -1627,17 +1727,26 @@ var ThreadUI = {
     }
 
     // build messageDOM adding the links
-    messageDOM = this.buildMessageDOM(message, hidden);
+    return this.buildMessageDOM(message, hidden).then((messageDOM) => {
+      if (this._stopRenderingNextStep) {
+        return;
+      }
 
-    messageDOM.dataset.timestamp = timestamp;
+      messageDOM.dataset.timestamp = timestamp;
 
-    // Add to the right position
-    var messageContainer = this.getMessageContainer(timestamp, hidden);
-    this._insertTimestampedNodeToContainer(messageDOM, messageContainer);
+      // Add to the right position
+      var messageContainer = this.getMessageContainer(timestamp, hidden);
+      this._insertTimestampedNodeToContainer(messageDOM, messageContainer);
 
-    if (this.mainWrapper.classList.contains('edit')) {
-      this.checkInputs();
-    }
+      if (this.inEditMode) {
+        this.checkInputs();
+      }
+
+      if (!hidden) {
+        // Go to Bottom
+        this.scrollViewToBottom();
+      }
+    });
   },
 
   /**
@@ -1659,59 +1768,15 @@ var ThreadUI = {
     container.insertBefore(nodeToInsert, currentNode || null);
   },
 
-  /**
-   * Parses html string to DOM node. Works with html string wrapped into single
-   * element only.
-   * NOTE: it's supposed that htmlString parameter is sanitized in advance as
-   * there aren't any sanitizing checks performed inside this method!
-   * @param {string} htmlString Valid html string.
-   * @returns {Node} DOM node create from the specified html string.
-   * @private
-   */
-  _htmlStringToDomNode: function(htmlString) {
-    var tempContainer = document.createElement('div');
-    tempContainer.innerHTML = htmlString;
-    return tempContainer.firstElementChild;
-  },
-
   showChunkOfMessages: function thui_showChunkOfMessages(number) {
-    var elements = ThreadUI.container.getElementsByClassName('hidden');
-    for (var i = elements.length - 1; i >= 0; i--) {
-      var element = elements[i];
+    var elements = this.container.getElementsByClassName('hidden');
+
+    Array.slice(elements, -number).forEach((element) => {
       element.classList.remove('hidden');
       if (element.tagName === 'HEADER') {
         TimeHeaders.update(element);
       }
-    }
-  },
-
-  cleanForm: function thui_cleanForm() {
-    // Reset all inputs
-    var inputs = this.allInputs;
-    for (var i = 0; i < inputs.length; i++) {
-      inputs[i].checked = false;
-      inputs[i].parentNode.parentNode.classList.remove('undo-candidate');
-    }
-    // Reset vars for deleting methods
-    this.checkInputs();
-  },
-
-  // if no message or few are checked : select all the messages
-  // and if all messages are checked : deselect them all.
-  toggleCheckedAll: function thui_select() {
-    var selected = this.selectedInputs;
-    var allInputs = this.allInputs;
-    var allSelected = (selected.length === allInputs.length);
-    var inputs = this.container.querySelectorAll(
-      'input[type="checkbox"]' +
-      (!allSelected ? ':not(:checked)' : ':checked')
-    );
-    var length = inputs.length;
-    for (var i = 0; i < length; i++) {
-      inputs[i].checked = !allSelected;
-      this.chooseMessage(inputs[i]);
-    }
-    this.checkInputs();
+    });
   },
 
   showOptions: function thui_showOptions() {
@@ -1758,10 +1823,33 @@ var ThreadUI = {
   },
 
   startEdit: function thui_edit() {
-    this.inEditMode = true;
-    this.cleanForm();
+    function editModeSetup() {
+      /*jshint validthis:true */
+      this.inEditMode = true;
+      this.selectionHandler.cleanForm();
+      this.mainWrapper.classList.toggle('edit');
+    }
 
-    this.mainWrapper.classList.toggle('edit');
+    if (!this.selectionHandler) {
+      LazyLoader.load('js/selection_handler.js', () => {
+        this.selectionHandler = new SelectionHandler({
+          // Elements
+          container: this.container,
+          checkUncheckAllButton: this.checkUncheckAllButton,
+          // Methods
+          checkInputs: this.checkInputs.bind(this),
+          getAllInputs: this.getAllInputs.bind(this),
+          isInEditMode: this.isInEditMode.bind(this)
+        });
+        editModeSetup.call(this);
+      });
+    } else {
+      editModeSetup.call(this);
+    }
+  },
+
+  isInEditMode: function thui_isInEditMode() {
+    return this.inEditMode;
   },
 
   deleteUIMessages: function thui_deleteUIMessages(list, callback) {
@@ -1810,13 +1898,12 @@ var ThreadUI = {
 
   delete: function thui_delete() {
     function performDeletion() {
+      /* jshint validthis: true */
+
       WaitingScreen.show();
-      var delNumList = [];
-      var inputs = ThreadUI.selectedInputs;
-      var length = inputs.length;
-      for (var i = 0; i < length; i++) {
-        delNumList.push(+inputs[i].value);
-      }
+      var items = this.selectionHandler.selectedList;
+      var delNumList = items.map(item => +item);
+
       // Complete deletion in DB and in UI
       MessageManager.deleteMessages(delNumList,
         function onDeletionDone() {
@@ -1828,30 +1915,17 @@ var ThreadUI = {
       );
     }
 
-    var dialog = new Dialog({
-      title: {
-        l10nId: 'messages'
+    return Utils.confirm(
+      {
+        id: 'deleteMessages-confirmation-message',
+        args: { n: this.selectionHandler.selectedCount }
       },
-      body: {
-        l10nId: 'deleteMessages-confirmation'
-      },
-      options: {
-        cancel: {
-          text: {
-            l10nId: 'cancel'
-          }
-        },
-        confirm: {
-          text: {
-            l10nId: 'delete'
-          },
-          method: performDeletion,
-          className: 'danger'
-        }
+      null,
+      {
+        text: 'delete',
+        className: 'danger'
       }
-    });
-
-    dialog.show();
+    ).then(performDeletion.bind(this));
   },
 
   cancelEdit: function thlui_cancelEdit() {
@@ -1861,21 +1935,14 @@ var ThreadUI = {
     }
   },
 
-  chooseMessage: function thui_chooseMessage(target) {
-    // Toggling red bubble
-    // TODO: Can we replace that 'parentNode.parentNode' with something more
-    // readable?
-    target.parentNode.parentNode.classList.toggle('selected', target.checked);
-  },
-
   checkInputs: function thui_checkInputs() {
-    var selected = this.selectedInputs;
+    var selected = this.selectionHandler.selectedCount;
     var allInputs = this.allInputs;
 
-    var isAnySelected = selected.length > 0;
+    var isAnySelected = selected > 0;
 
     // Manage buttons enabled\disabled state
-    if (selected.length === allInputs.length) {
+    if (selected === allInputs.length) {
       this.checkUncheckAllButton.setAttribute('data-l10n-id', 'deselect-all');
     } else {
       this.checkUncheckAllButton.setAttribute('data-l10n-id', 'select-all');
@@ -1884,7 +1951,7 @@ var ThreadUI = {
     if (isAnySelected) {
       this.deleteButton.disabled = false;
       navigator.mozL10n.setAttributes(this.editMode, 'selected-messages',
-        {n: selected.length});
+        {n: selected});
     } else {
       this.deleteButton.disabled = true;
       navigator.mozL10n.setAttributes(this.editMode, 'deleteMessages-title');
@@ -1934,10 +2001,9 @@ var ThreadUI = {
     // Click events originating from a "message-status" aside of an error
     // message should trigger a prompt for retransmission.
     if (elems.message.classList.contains('error') && elems.messageStatus) {
-      if (window.confirm(navigator.mozL10n.get('resend-confirmation'))) {
+      Utils.confirm('resend-confirmation').then(() => {
         this.resendMessage(elems.message.dataset.messageId);
-      }
-      return;
+      });
     }
   },
 
@@ -1977,11 +2043,6 @@ var ThreadUI = {
     switch (evt.type) {
       case 'click':
         if (this.inEditMode) {
-          var input = evt.target.parentNode.querySelector('input');
-          if (input) {
-            this.chooseMessage(input);
-            this.checkInputs();
-          }
           return;
         }
 
@@ -1994,12 +2055,13 @@ var ThreadUI = {
       case 'contextmenu':
         evt.preventDefault();
         evt.stopPropagation();
+
         var messageBubble = this.getMessageBubble(evt.target);
-        var lineClassList = messageBubble.node.parentNode.classList;
 
         if (!messageBubble) {
           return;
         }
+        var lineClassList = messageBubble.node.parentNode.classList;
 
         // Show options per single message
         var messageId = messageBubble.id;
@@ -2012,18 +2074,24 @@ var ThreadUI = {
         if (!lineClassList.contains('not-downloaded')) {
           params.items.push({
             l10nId: 'forward',
-            method: function forwardMessage(messageId) {
-              Navigation.toPanel('composer', {
-                forward: {
-                  messageId: messageId
-                }
+            method: () => {
+              this.navigateToComposer({
+                forward: { messageId: messageId }
               });
-            },
-            params: [messageId]
+            }
           });
         }
 
         params.items.push(
+          {
+            l10nId: 'select-text',
+            method: (node) => {
+              this.enableBubbleSelection(
+                node.querySelector('.message-content-body')
+              );
+            },
+            params: [messageBubble.node]
+          },
           {
             l10nId: 'view-message-report',
             method: function showMessageReport(messageId) {
@@ -2040,15 +2108,14 @@ var ThreadUI = {
           {
             l10nId: 'delete',
             method: function deleteMessage(messageId) {
-              if (window.confirm(navigator.mozL10n
-                .get('deleteMessage-confirmation'))) {
-                // Complete deletion in DB and UI
-                MessageManager.deleteMessages(messageId,
-                  function onDeletionDone() {
-                    ThreadUI.deleteUIMessages(messageId);
-                  }
+              Utils.confirm(
+                'deleteMessage-confirmation', null,
+                { text: 'delete', className: 'danger' }
+              ).then(() => {
+                MessageManager.deleteMessages(
+                  messageId, () => ThreadUI.deleteUIMessages(messageId)
                 );
-              }
+              });
             },
             params: [messageId]
           }
@@ -2079,6 +2146,10 @@ var ThreadUI = {
 
   cleanFields: function thui_cleanFields() {
     this.previousSegment = 0;
+
+    if (this.recipients) {
+      this.recipients.length = 0;
+    }
 
     Compose.clear();
   },
@@ -2135,7 +2206,9 @@ var ThreadUI = {
     }
 
     // Clean composer fields (this lock any repeated click in 'send' button)
+    this.disableConvertNoticeBanners();
     this.cleanFields();
+    this.enableConvertNoticeBanners();
 
     // If there was a draft, it just got sent
     // so delete it
@@ -2186,6 +2259,9 @@ var ThreadUI = {
         if (ActivityHandler.isInActivity()) {
           setTimeout(this.close.bind(this), this.LEAVE_ACTIVITY_DELAY);
         }
+
+        // Early return to prevent compose focused for multi-recipients sms case
+        return;
       }
 
     } else {
@@ -2206,6 +2282,9 @@ var ThreadUI = {
 
       MessageManager.sendMMS(mmsOpts);
     }
+
+    // Retaining the focus on composer.
+    Compose.focus();
   },
 
   onMessageSent: function thui_onMessageSent(e) {
@@ -2328,7 +2407,7 @@ var ThreadUI = {
 
     if (newStatusMarkup) {
       messageDOM.querySelector('.message-details').appendChild(
-        this._htmlStringToDomNode(newStatusMarkup)
+        newStatusMarkup.toDocumentFragment()
       );
     }
   },
@@ -2459,22 +2538,21 @@ var ThreadUI = {
   },
 
   validateContact: function thui_validateContact(source, fValue, contacts) {
-    // fValue is currently unused here, but must be in the parameter
-    // list in order for exactContact and searchContact to both use
-    // validateContact as a handler.
-    //
     var isInvalid = true;
     var index = this.recipients.length - 1;
     var last = this.recipientsList.lastElementChild;
     var typed = last && last.textContent.trim();
     var isContact = false;
-    var record, length, number, contact, prop, propValue;
+    var record, length, number, contact;
 
     if (index < 0) {
       index = 0;
     }
-    prop = Settings.supportEmailRecipient &&
-           Utils.isEmailAddress(fValue) ? 'email' : 'tel';
+
+    var props = ['tel'];
+    if (Settings.supportEmailRecipient) {
+      props.push('email');
+    }
 
     // If there is greater than zero matches,
     // process the first found contact into
@@ -2482,18 +2560,26 @@ var ThreadUI = {
     if (contacts && contacts.length) {
       isInvalid = false;
       record = contacts[0];
-      length = record[prop].length;
+      var values = props.reduce((values, prop) => {
+        var propValue = record[prop];
+        if (propValue && propValue.length) {
+          return values.concat(propValue);
+        }
 
-      // Received an exact match with a single tel record
+        return values;
+      }, []);
+      length = values.length;
+
+      // Received an exact match with a single tel or email record
       if (source.isLookupable && !source.isQuestionable && length === 1) {
-        if (Utils.probablyMatches(record[prop][0].value, fValue)) {
+        if (Utils.probablyMatches(values[0].value, fValue)) {
           isContact = true;
-          number = record[prop][0].value;
+          number = values[0].value;
         }
       } else {
         // Received an exact match that may have multiple tel records
         for (var i = 0; i < length; i++) {
-          propValue = record[prop][i].value;
+          var propValue = values[i].value;
           if (this.recipients.numbers.indexOf(propValue) === -1) {
             number = propValue;
             break;
@@ -2671,7 +2757,7 @@ var ThreadUI = {
       this.prompt({
         number: tel,
         email: email,
-        header: fragment || number,
+        header: fragment,
         contactId: id,
         isContact: isContact,
         inMessage: inMessage
@@ -2691,7 +2777,7 @@ var ThreadUI = {
     var email = opt.email || '';
     var isContact = opt.isContact || false;
     var inMessage = opt.inMessage || false;
-    var header = opt.header || number || email || '';
+    var header = opt.header;
     var items = [];
     var params, props;
 
@@ -2702,10 +2788,16 @@ var ThreadUI = {
     //      in the header of the option menu
     //  - items: array of options to display in menu
     //
+    if (!header && (number || email)) {
+      header = document.createElement('bdi');
+      header.className = 'unknown-contact-header';
+      header.textContent = number || email;
+    }
+
     params = {
       classes: ['contact-prompt'],
       complete: complete,
-      header: header,
+      header: header || '',
       items: null
     };
 
@@ -2719,6 +2811,19 @@ var ThreadUI = {
         },
         params: [email]
       });
+      if (Settings.supportEmailRecipient) {
+        items.push({
+          l10nId: 'sendMMSToEmail',
+          method: () => {
+            this.navigateToComposer({
+              activity: { number: email }
+            });
+          },
+          // As we change panel here, we don't want to call 'complete' that
+          // changes the panel as well
+          incomplete: true
+        });
+      }
     } else {
       // Multi-participant activations or in-message numbers
       // will include a "Call" and "Send Message" options in the menu
@@ -2732,12 +2837,13 @@ var ThreadUI = {
 
         items.push({
           l10nId: 'sendMessage',
-          method: function oMessage(param) {
-            ActivityPicker.sendMessage(param);
+          method: () => {
+            this.navigateToComposer({
+              activity: { number: number }
+            });
           },
-          params: [number],
-          // As activity picker changes the panel we don't want
-          // to call 'complete' that changes the panel as well
+          // As we change panel here, we don't want to call 'complete' that
+          // changes the panel as well
           incomplete: true
         });
       }
@@ -2776,7 +2882,7 @@ var ThreadUI = {
       );
     }
 
-    if (opt.contactId) {
+    if (opt.contactId && !ActivityHandler.isInActivity()) {
 
         props = [{ id: opt.contactId }];
 
@@ -2792,7 +2898,12 @@ var ThreadUI = {
       );
     }
 
-    // All activations will see a "Cancel" option
+    // Menu should not be displayed if no option required, otherwise all
+    // activations will see a "Cancel" option
+    if (params.items.length === 0) {
+      return;
+    }
+
     params.items.push({
       l10nId: 'cancel',
       incomplete: true
@@ -2918,18 +3029,42 @@ var ThreadUI = {
       contactList.appendChild(suggestions);
       this.recipientSuggestions.scrollTop = 0;
     }
+  },
+
+  /**
+   * If the bubble selection mode is disabled, all the non-editable element
+   * should be set to user-select: none to prevent selection triggered
+   * unexpectedly. Selection functionality should be enabled only by bubble
+   * context menu. While in bubble selection mode, context menu is disabled
+   * temporary for better use experience.
+   * Since long press is used for context menu first, selection need to be
+   * triggered by selection API manually. Focus/blur events are used for
+   * simulating selection changed event, which is only been used in system.
+   * When the node gets blur event, bubble selection mode should be dismissed.
+   * @param {Object} node element that contains message bubble text content.
+   */
+  enableBubbleSelection: function(node) {
+    var threadMessagesClass = this.threadMessages.classList;
+    var disable = () => {
+      this.container.addEventListener('contextmenu', this);
+      node.removeEventListener('blur', disable);
+      threadMessagesClass.add('editable-select-mode');
+      // TODO: Remove this once the gecko could clear selection automatically
+      // in bug 1101376.
+      window.getSelection().removeAllRanges();
+    };
+
+    node.addEventListener('blur', disable);
+    this.container.removeEventListener('contextmenu', this);
+    threadMessagesClass.remove('editable-select-mode');
+    node.focus();
+    window.getSelection().selectAllChildren(node);
   }
 };
 
 Object.defineProperty(ThreadUI, 'allInputs', {
   get: function() {
     return this.getAllInputs();
-  }
-});
-
-Object.defineProperty(ThreadUI, 'selectedInputs', {
-  get: function() {
-    return this.getSelectedInputs();
   }
 });
 

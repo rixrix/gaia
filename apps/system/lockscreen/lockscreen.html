@@ -1,18 +1,33 @@
 <!-- Content of LockScreen frame -->
+
 <div id="lockscreen-frame" hidden>
 
-  <link rel="stylesheet" type="text/css" href="lockscreen/style/lockscreen_fake_notification.css" />
-
-  <link rel="stylesheet" type="text/css" href="lockscreen/style/lockscreen_frame.css" />
-  <link rel="stylesheet" type="text/css" href="lockscreen/style/notifications.css" />
-
-  <link rel="stylesheet" type="text/css" href="lockscreen/style/lockscreen.css" />
+  <style scoped>
+    @import url("lockscreen/style/lockscreen_fake_notification.css");
+    @import url("lockscreen/style/lockscreen_frame.css");
+    @import url("lockscreen/style/notifications.css");
+    @import url("lockscreen/style/lockscreen.css");
+    @import url("lockscreen/style/lockscreen_media_playback.css");
+  </style>
 
   <script defer src="lockscreen/js/lockscreen_media_playback.js"></script>
-  <link rel="stylesheet" type="text/css" href="lockscreen/style/lockscreen_media_playback.css" />
 
   <script defer src="lockscreen/js/lockscreen_notification_builder.js"></script>
   <script defer src="lockscreen/js/lockscreen_notifications.js"></script>
+  <script defer src="lockscreen/js/lockscreen_charging.js"></script>
+  <script defer src="lockscreen/js/source/source_event.js"></script>
+  <script defer src="lockscreen/js/source/dom_event_source.js"></script>
+  <script defer src="lockscreen/js/source/setting_source.js"></script>
+  <script defer src="lockscreen/js/source/minute_clock_source.js"></script>
+  <script defer src="lockscreen/js/stream/process.js"></script>
+  <script defer src="lockscreen/js/stream/stream.js"></script>
+  <script defer src="lockscreen/js/component/lockscreen_basic_component.js"></script>
+  <script defer src="lockscreen/js/state/lockscreen_basic_state.js"></script>
+  <script defer src="lockscreen/js/widgets/clock/lockscreen_clock_widget.js"></script>
+  <script defer src="lockscreen/js/widgets/clock/lockscreen_clock_widget_setup.js"></script>
+  <script defer src="lockscreen/js/widgets/clock/lockscreen_clock_widget_tick.js"></script>
+  <script defer src="lockscreen/js/widgets/clock/lockscreen_clock_widget_suspend.js"></script>
+
   <script defer src="lockscreen/js/lockscreen.js"></script>
 
   <script defer src="lockscreen/js/lockscreen_frame_agent.js"></script>
@@ -21,8 +36,11 @@
   <script defer src="lockscreen/js/lockscreen_state_keypadrising.js"></script>
   <script defer src="lockscreen/js/lockscreen_state_keypadshow.js"></script>
   <script defer src="lockscreen/js/lockscreen_state_panelhide.js"></script>
+  <script defer src="lockscreen/js/lockscreen_state_sliderestore.js"></script>
   <script defer src="lockscreen/js/lockscreen_state_slideshow.js"></script>
   <script defer src="lockscreen/js/lockscreen_state_slidehide.js"></script>
+  <script defer src="lockscreen/js/lockscreen_state_unlock.js"></script>
+  <script defer src="lockscreen/js/lockscreen_state_secure_app_launching.js"></script>
   <script defer src="lockscreen/js/lockscreen_state_logger.js"></script>
   <script defer src="lockscreen/js/lockscreen_state_manager.js"></script>
   <script defer src="lockscreen/js/lockscreen_bootstrap.js"></script>
@@ -38,8 +56,11 @@
         <div id="lockscreen-alt-camera" class="lockscreen-icon">
           <div id="lockscreen-alt-camera-button" role="button" data-l10n-id="camera-a11y-button" aria-label="Camera"></div>
         </div>
-        <div id="lockscreen-clock-time"></div>
-        <div id="lockscreen-date"></div>
+        <div id="lockscreen-clock-widget">
+          <div id="lockscreen-clock-time"></div>
+          <div id="lockscreen-date"></div>
+        </div>
+        <div id="lockscreen-charging"></div>
       </div>
       <div id="notifications-lockscreen-container">
       </div>
@@ -53,9 +74,10 @@
             <div class="track" data-l10n-id="mediaPlaybackTrack"></div>
           </div>
           <div class="media-playback-controls" role="toolbar" data-l10n-id="mediaPlaybackControls">
-            <button data-icon="skip-back" class="previous" data-l10n-id="mediaPlaybackPrevious"></button>
-            <button data-icon="play" class="play-pause"></button>
-            <button data-icon="skip-forward" class="next" data-l10n-id="mediaPlaybackNext"></button>
+            <!-- XXX: These used to be button elements for prev/pause/next buttons but we are not able to receive contextmenu event from them. Change to div elements to make it work and able to fast seek from it (Bug 1017294) -->
+            <div data-icon="skip-back" class="previous" data-l10n-id="mediaPlaybackPrevious"></div>
+            <div data-icon="play" class="play-pause"></div>
+            <div data-icon="skip-forward" class="next" data-l10n-id="mediaPlaybackNext"></div>
           </div>
         </div>
       </div>

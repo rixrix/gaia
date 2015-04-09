@@ -67,11 +67,17 @@ function SMIL_generateSlides(data, slide, slideIndex) {
   if (slide.blob) {
     blobType = Utils.typeFromMimeType(slide.blob.type);
     if (blobType) {
+      var tagName = tagNameFromBlobType(blobType);
+      var region = 'region="Image"';
+      // For attachment type 'ref' the region is not set
+      if (tagName === 'ref') {
+        region = '';
+      }
       name = slide.name.substr(slide.name.lastIndexOf('/') + 1);
       // just to be safe, remove any non-standard characters from the filename
       name = name.replace(unsafeFilenamePattern, '#');
       name = SMIL_generateUniqueLocation(data, name);
-      media = '<' + blobType + ' src="' + name + '" region="Image"/>';
+      media = '<' + tagName + ' src="' + name + '" ' + region + '/>';
       data.attachments.push({
         id: '<' + name + '>',
         location: name,
@@ -93,6 +99,22 @@ function SMIL_generateSlides(data, slide, slideIndex) {
   }
   data.parts.push('<par dur="' + DURATION + 'ms">' + media + text + '</par>');
   return data;
+}
+
+// Return a proper tag name depending on the blob type
+function tagNameFromBlobType(blobType) {
+  var out;
+
+  switch(blobType) {
+    case 'vcard':
+      out = 'ref';
+    break;
+
+    default:
+      out = blobType;
+  }
+
+  return out;
 }
 
 function SMIL_generateUniqueLocation(data, location) {
@@ -166,6 +188,7 @@ window.SMIL = {
     var slides = [];
     var activeReaders = 0;
     var attachmentsNotFound = false;
+    var smilMismatched = false;
     var doc;
     var parTags;
 
@@ -325,13 +348,23 @@ window.SMIL = {
     if (smil) {
       doc = (new DOMParser()).parseFromString(smil, 'application/xml');
       parTags = doc.documentElement.getElementsByTagName('par');
-      Array.prototype.forEach.call(parTags, SMIL_parseHandleParTag);
+
+      // Check if attachments are all listed in smil.
+      var elements = Array.reduce(
+        parTags, (count, par) => count + par.childElementCount, 0
+      );
+
+      if (elements !== attachments.length) {
+        smilMismatched = true;
+      } else {
+        Array.prototype.forEach.call(parTags, SMIL_parseHandleParTag);
+      }
     }
 
     // handle MMS attachments without SMIL / malformed SMIL
-    if (!smil || attachmentsNotFound || !slides.length) {
+    if (!smil || attachmentsNotFound || !slides.length || smilMismatched) {
       // reset slides in the attachments not found case
-      slides = [];
+      slides = Array(attachments.length);
       attachments.forEach(SMIL_parseWithoutSMIL);
     }
     exitPoint();

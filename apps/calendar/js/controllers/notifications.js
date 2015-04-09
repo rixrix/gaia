@@ -22,7 +22,11 @@ exports.unobserve = function() {
 exports.onAlarm = function(alarm) {
   debug('Will request cpu wake lock...');
   var lock = navigator.requestWakeLock('cpu');
-  return issueNotification(alarm).then(() => {
+  debug('Received cpu lock. Will issue notification...');
+  return issueNotification(alarm).catch(err => {
+    console.error('controllers/notifications', err.toString());
+  }).then(() => {
+    // release cpu lock with or without errors
     debug('Will release cpu wake lock...');
     lock.unlock();
   });
@@ -42,6 +46,16 @@ function issueNotification(alarm) {
   ])
   .then(values => {
     var [event, busytime] = values;
+
+    // just a safeguard on the very unlikely case that busytime or event
+    // doesn't exist anymore (should be really hard to happen)
+    if (!event) {
+      throw new Error(`can't find event with ID: ${alarm.eventId}`);
+    }
+    if (!busytime) {
+      throw new Error(`can't find busytime with ID: ${alarm.busytimeId}`);
+    }
+
     var begins = calc.dateFromTransport(busytime.start);
     var distance = dateFormat.fromNow(begins);
     var now = new Date();
@@ -56,14 +70,11 @@ function issueNotification(alarm) {
       distance: distance
     });
 
-    debug(
-      'Will send event notification with title:', title,
-      'description:', event.remote.description, '...'
-    );
-    notification.app = exports.app;
+    var body = event.remote.description || '';
+    debug('Will send event notification with title:', title, 'body:', body);
     return notification.sendNotification(
       title,
-      event.remote.description,
+      body,
       `/alarm-display/${busytime._id}`
     );
   });

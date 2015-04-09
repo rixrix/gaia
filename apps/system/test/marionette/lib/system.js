@@ -21,48 +21,74 @@ System.Selector = Object.freeze({
     'gaia-header',
   appAuthDialogLogin: '.appWindow.active .authentication-dialog.visible ' +
     'button.authentication-dialog-http-authentication-ok',
+  appContextMenuSaveLink:
+    '.appWindow.active .contextmenu [data-id="save-link"]',
   appWindow: '.appWindow',
   appTitlebar: '.appWindow.active .titlebar',
   appUrlbar: '.appWindow.active .title',
+  appChrome: '.appWindow.active .chrome',
   appChromeBack: '.appWindow.active .back-button',
   appChromeForward: '.appWindow.active .forward-button',
   appChromeContextLink: '.appWindow.active .menu-button',
   appChromeContextMenu: '.appWindow.active .contextmenu',
+  appChromeContextNewPrivate: '.appWindow.active [data-id=new-private-window]',
   appChromeContextMenuNewWindow: '.appWindow.active [data-id=new-window]',
   appChromeContextMenuBookmark: '.appWindow.active [data-id=add-to-homescreen]',
   appChromeContextMenuShare: '.appWindow.active [data-id=share]',
   appChromeReloadButton: '.appWindow.active .controls .reload-button',
+  appChromeStopButton: '.appWindow.active .controls .stop-button',
   appChromeWindowsButton: '.appWindow.active .controls .windows-button',
+  appChromeProgressBar: '.appWindow.active .chrome gaia-progress',
   browserWindow: '.appWindow.browser',
+  currentWindow: '.appWindow.active',
+  dialogOverlay: '#screen #dialog-overlay',
+  downloadDialog: '#downloadConfirmUI',
   imeMenu: '.ime-menu',
+  inlineActivity: '.appWindow.inline-activity',
   sleepMenuContainer: '#sleep-menu-container',
   softwareButtons: '#software-buttons',
   softwareHome: '#software-home-button',
   softwareHomeFullscreen: '#fullscreen-software-home-button',
   softwareHomeFullscreenLayout: '#software-buttons-fullscreen-layout',
   statusbar: '#statusbar',
+  statusbarShadow: '.appWindow.active .statusbar-shadow',
+  statusbarShadowTray: '#statusbar-tray',
+  statusbarShadowActivity: '.activityWindow.active .statusbar-shadow',
   statusbarMaximizedWrapper: '#statusbar-maximized-wrapper',
   statusbarMinimizedWrapper: '#statusbar-minimized-wrapper',
-  statusbarLabel: '#statusbar-label',
+  statusbarOperator: '.statusbar-operator',
   systemBanner: '.banner.generic-dialog',
   topPanel: '#top-panel',
+  trustedWindow: '.appWindow.active.trustedwindow',
+  trustedWindowChrome: '.appWindow.active.trustedwindow .chrome',
   leftPanel: '#left-panel',
   rightPanel: '#right-panel',
   utilityTray: '#utility-tray',
   visibleForm: '#screen > form.visible',
   cancelActivity: 'form.visible button[data-action="cancel"]',
-  nfcIcon: '#statusbar-nfc'
+  nfcIcon: '.statusbar-nfc',
+  activeKeyboard: '.inputWindow.active'
 });
 
 System.prototype = {
   client: null,
+
+  URL: System.URL,
+
+  Selector: System.Selector,
 
   getAppWindows: function() {
     return this.client.findElements(System.Selector.appWindow);
   },
 
   getBrowserWindows: function() {
-    return this.client.findElements(System.Selector.browserWindow);
+    var searchTimeout = this.client.searchTimeout;
+    this.client.setSearchTimeout(0);
+
+    var elements = this.client.findElements(System.Selector.browserWindow);
+
+    this.client.setSearchTimeout(searchTimeout);
+    return elements;
   },
 
   get activeHomescreenFrame() {
@@ -84,12 +110,22 @@ System.prototype = {
       System.Selector.appAuthDialogLogin);
   },
 
+  get appContextMenuSaveLink() {
+    return this.client.helper.waitForElement(
+      System.Selector.appContextMenuSaveLink);
+  },
+
   get appTitlebar() {
     return this.client.helper.waitForElement(System.Selector.appTitlebar);
   },
 
   get appUrlbar() {
     return this.client.helper.waitForElement(System.Selector.appUrlbar);
+  },
+
+  get appChrome() {
+    return this.client.helper.waitForElement(
+      System.Selector.appChrome);
   },
 
   get appChromeBack() {
@@ -112,6 +148,11 @@ System.prototype = {
       System.Selector.appChromeContextMenu);
   },
 
+  get appChromeContextNewPrivate() {
+    return this.client.helper.waitForElement(
+      System.Selector.appChromeContextNewPrivate);
+  },
+
   get appChromeContextMenuNewWindow() {
     return this.client.helper.waitForElement(
       System.Selector.appChromeContextMenuNewWindow);
@@ -132,8 +173,35 @@ System.prototype = {
       System.Selector.appChromeReloadButton);
   },
 
+  get appChromeStopButton() {
+    return this.client.helper.waitForElement(
+      System.Selector.appChromeStopButton);
+  },
+
+  get appChromeProgressBar() {
+    return this.client.helper.waitForElement(
+      System.Selector.appChromeProgressBar);
+  },
+
+  get currentWindow() {
+    return this.client.helper.waitForElement(System.Selector.currentWindow);
+  },
+
+  get dialogOverlay() {
+    return this.client.helper.waitForElement(
+      System.Selector.dialogOverlay);
+  },
+
+  get downloadDialog() {
+    return this.client.helper.waitForElement(System.Selector.downloadDialog);
+  },
+
   get imeMenu() {
     return this.client.helper.waitForElement(System.Selector.imeMenu);
+  },
+
+  get inlineActivity() {
+    return this.client.helper.waitForElement(System.Selector.inlineActivity);
   },
 
   get sleepMenuContainer() {
@@ -170,12 +238,22 @@ System.prototype = {
     return this.client.findElement(System.Selector.statusbarMinimizedWrapper);
   },
 
-  get statusbarLabel() {
-    return this.client.findElement(System.Selector.statusbarLabel);
+  get statusbarOperator() {
+    return this.client.findElement(System.Selector.statusbarOperator);
   },
 
   get systemBanner() {
     return this.client.helper.waitForElement(System.Selector.systemBanner);
+  },
+
+  get trustedWindow() {
+    return this.client.helper.waitForElement(
+      System.Selector.trustedWindow);
+  },
+
+  get trustedWindowChrome() {
+    return this.client.helper.waitForElement(
+      System.Selector.trustedWindowChrome);
   },
 
   get utilityTray() {
@@ -208,6 +286,18 @@ System.prototype = {
 
   get nfcIcon() {
     return this.client.findElement(System.Selector.nfcIcon);
+  },
+
+  get statusbarShadow() {
+    return this.client.findElement(System.Selector.statusbarShadow);
+  },
+
+  get statusbarShadowTray() {
+    return this.client.findElement(System.Selector.statusbarShadowTray);
+  },
+
+  get statusbarShadowActivity() {
+    return this.client.findElement(System.Selector.statusbarShadowActivity);
   },
 
   getAppIframe: function(url) {
@@ -255,19 +345,71 @@ System.prototype = {
     });
   },
 
+  // Since the getScreenshot call is asynchronous and does not have any
+  // external side effect, we're just queuing another screenshot request
+  // afterward to be sure it's done.
+  waitUntilScreenshotable: function(iframe) {
+    this.client.executeAsyncScript(function(iframe) {
+      iframe.wrappedJSObject.getScreenshot(1, 1).then(marionetteScriptFinished,
+                                                      marionetteScriptFinished);
+    }, [iframe]);
+  },
+
+  waitForKeyboard: function() {
+    this.client.helper.waitForElement(System.Selector.activeKeyboard);
+  },
+
+  waitForKeyboardToDisappear: function() {
+    this.client.helper.waitForElementToDisappear(
+      System.Selector.activeKeyboard
+    );
+  },
+
   goHome: function() {
+    this.client.switchToFrame();
+    this.client.executeAsyncScript(function() {
+      var win = window.wrappedJSObject;
+      win.addEventListener('homescreenopened', function trWait() {
+        win.removeEventListener('homescreenopened', trWait);
+        marionetteScriptFinished();
+      });
+      win.dispatchEvent(new CustomEvent('home'));
+    });
+  },
+
+  tapHome: function() {
+    this.client.switchToFrame();
     this.client.executeScript(function() {
       window.wrappedJSObject.dispatchEvent(new CustomEvent('home'));
     });
   },
 
+  holdHome: function() {
+    this.client.switchToFrame();
+    this.client.executeScript(function() {
+      window.wrappedJSObject.dispatchEvent(new CustomEvent('holdhome'));
+    });
+  },
+
+  resize: function() {
+    this.client.switchToFrame();
+    this.client.executeScript(function() {
+      window.wrappedJSObject.dispatchEvent(new CustomEvent('resize'));
+    });
+  },
+
+  request: function(service) {
+    this.client.executeScript(function(service) {
+      window.wrappedJSObject.Service.request(service);
+    }, [service]);
+  },
+
+
   stopClock: function() {
     var client = this.client;
-    var clock = client.executeScript(function() {
-      return window.wrappedJSObject.StatusBar.icons.time;
-    });
+    var clock = this.client.findElement('#statusbar-time');
     client.executeScript(function() {
-      window.wrappedJSObject.StatusBar.toggleTimeLabel(false);
+      window.wrappedJSObject.Service.request('TimeIcon:stop');
     });
     client.waitFor(function() {
       return !clock.displayed();
@@ -283,6 +425,18 @@ System.prototype = {
   stopDevtools: function() {
     this.client.executeScript(function() {
       window.wrappedJSObject.developerHUD.stop();
+    });
+  },
+
+  // The activity menu has a transform transition where it appears from the
+  // bottom of the screen. This waits for that to complete.
+  waitForActivityMenu: function() {
+    var form = this.client.helper.waitForElement(System.Selector.visibleForm);
+    this.client.waitFor(function() {
+      return form.scriptWith(function(element) {
+        return window.getComputedStyle(element).transform ===
+          'matrix(1, 0, 0, 1, 0, 0)';
+      });
     });
   },
 

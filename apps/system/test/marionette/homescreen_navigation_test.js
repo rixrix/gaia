@@ -5,7 +5,6 @@ marionette('Homescreen navigation >', function() {
       require('../../../../tests/js-marionette/reflow_helper.js');
 
   var assert = require('assert');
-  var System = require('./lib/system.js');
 
   var SETTINGS_APP = 'app://settings.gaiamobile.org';
 
@@ -15,9 +14,6 @@ marionette('Homescreen navigation >', function() {
       'devtools.debugger.forbid-certified-apps': false
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false,
-      'edgesgesture.enabled': true,
       'devtools.overlay': true,
       'hud.reflows': true
     }
@@ -42,13 +38,10 @@ marionette('Homescreen navigation >', function() {
     });
   }
 
-  suiteSetup(function() {
-    sys = new System(client);
-  });
-
   setup(function() {
     reflowHelper = new ReflowHelper(client);
     client.switchToFrame();
+    sys = client.loader.getAppClass('system');
     sys.waitForStartup();
 
     homescreen = sys.getAppIframe('verticalhome.gaiamobile.org');
@@ -66,7 +59,7 @@ marionette('Homescreen navigation >', function() {
     goHome();
     launchSettings();
 
-    reflowHelper.startTracking(System.URL);
+    reflowHelper.startTracking(sys.URL);
     client.switchToFrame();
 
     goHome();

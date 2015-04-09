@@ -1,7 +1,5 @@
 'use strict';
 
-var System = require('./lib/system');
-
 marionette('Software Home Button - Secure Fullscreen App', function() {
 
   var client = marionette.client({
@@ -9,7 +7,6 @@ marionette('Software Home Button - Secure Fullscreen App', function() {
       'dom.w3c_touch_events.enabled': 1
     },
     settings: {
-      'ftu.manifestURL': null,
       'lockscreen.enabled': true,
       'software-button.enabled': true
     }
@@ -17,7 +14,7 @@ marionette('Software Home Button - Secure Fullscreen App', function() {
   var system;
 
   setup(function() {
-    system = new System(client);
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
   });
 

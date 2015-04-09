@@ -62,6 +62,7 @@ suite('Information view', function() {
     loadBodyHTML('/index.html');
     this.sinon.spy(navigator.mozL10n, 'setAttributes');
     this.sinon.stub(MessageManager, 'on');
+    this.sinon.spy(ThreadUI, 'setHeaderContent');
     contact = MockContact();
   });
 
@@ -72,24 +73,18 @@ suite('Information view', function() {
 
     suite('view show/reset status', function() {
       test('view status before show method', function() {
-        assert.isFalse(reportView.parent.classList.contains(
-          reportView.name + '-information'));
-        assert.isTrue(reportView.container.classList.contains('hide'));
+        assert.isTrue(reportView.panel.classList.contains('hide'));
       });
 
       test('view status after show method', function() {
         this.sinon.stub(reportView, 'render');
         reportView.show();
-        assert.isTrue(reportView.parent.classList.contains(
-          reportView.name + '-information'));
-        assert.isFalse(reportView.container.classList.contains('hide'));
+        assert.isFalse(reportView.panel.classList.contains('hide'));
       });
 
       test('view status after reset method', function() {
         reportView.reset();
-        assert.isFalse(reportView.parent.classList.contains(
-          reportView.name + '-information'));
-        assert.isTrue(reportView.container.classList.contains('hide'));
+        assert.isTrue(reportView.panel.classList.contains('hide'));
       });
     });
 
@@ -114,14 +109,20 @@ suite('Information view', function() {
       setup(function() {
         reportView.reset();
         this.sinon.spy(ContactRenderer.prototype, 'render');
+        this.sinon.spy(ContactRenderer, 'flavor');
       });
+
       test('renderContactList with string array', function() {
         var participants = ['111'];
         reportView.renderContactList(participants);
-        assert.isTrue(ContactRenderer.prototype.render.called);
-        var arg = ContactRenderer.prototype.render.args[0][0];
-        assert.equal(arg.input, participants[0]);
-        assert.equal(arg.infoBlock, null);
+        sinon.assert.calledWith(ContactRenderer.flavor, 'report-view');
+        sinon.assert.calledWithMatch(
+          ContactRenderer.prototype.render,
+          {
+            input: participants[0],
+            infoBlock: undefined
+          }
+        );
       });
 
       test('renderContactList with string array(not in contact)', function() {
@@ -144,10 +145,14 @@ suite('Information view', function() {
           { number: '222', infoBlock: div}
         ];
         reportView.renderContactList(participants);
-        sinon.assert.called(ContactRenderer.prototype.render);
-        var arg = ContactRenderer.prototype.render.args[0][0];
-        assert.equal(arg.input, participants[0].number);
-        assert.equal(arg.infoBlock, participants[0].infoBlock);
+        sinon.assert.calledWith(ContactRenderer.flavor, 'report-view');
+        sinon.assert.calledWithMatch(
+          ContactRenderer.prototype.render,
+          {
+            input: participants[0].number,
+            infoBlock: div
+          }
+        );
       });
 
       test('renderContactList with object array(not in contact)', function() {
@@ -183,7 +188,7 @@ suite('Information view', function() {
           ];
 
           this.sinon.spy(Template.prototype, 'interpolate');
-          this.sinon.stub(Contacts, 'findByAddress');        
+          this.sinon.stub(Contacts, 'findByAddress');
 
           reportView.renderContactList(oldParticipant);
           oldRenderingId = reportView.renderingId;
@@ -269,7 +274,9 @@ suite('Information view', function() {
     });
 
     function getInfoBlock(renderContactList) {
-      return renderContactList.args[0][0][0].infoBlock;
+      var infoBlock = renderContactList.args[0][0][0].infoBlock;
+      assert.isTrue(infoBlock.classList.contains('network-status'));
+      return infoBlock;
     }
 
     function generalInfoAssertion(opts) {
@@ -292,14 +299,19 @@ suite('Information view', function() {
       assert.equal(reportView.subject.classList.contains('hide'), subjectHide);
       if (!subjectHide && subjectContent) {
         assert.equal(reportView.subject.querySelector('.detail').textContent,
-                     subjectContent);        
+                     subjectContent);
       }
 
-      sinon.assert.calledWith(
-        navigator.mozL10n.setAttributes,
-        reportView.sentTitle,
-        sentTitle
-      );
+      if (delivery === 'error') {
+        assert.isFalse(navigator.mozL10n.setAttributes.calledWith(
+          reportView.sentTitle, sentTitle));
+      } else {
+        sinon.assert.calledWith(
+          navigator.mozL10n.setAttributes,
+          reportView.sentTitle,
+          sentTitle
+        );
+      }
 
       sinon.assert.calledWith(
         navigator.mozL10n.setAttributes,
@@ -312,7 +324,7 @@ suite('Information view', function() {
         sinon.assert.calledWith(
           navigator.mozL10n.setAttributes,
           reportView.size,
-          'attachmentSize',
+          'attachmentSizeKB',
           sizeContent
         );
       }
@@ -678,6 +690,7 @@ suite('Information view', function() {
         reportView.render();
 
         reportDiv = getInfoBlock(reportView.renderContactList);
+        sinon.assert.notCalled(Template.prototype.interpolate);
         assert.equal(reportDiv.dataset.deliveryStatus, 'not-applicable');
       });
 
@@ -805,6 +818,7 @@ suite('Information view', function() {
             switch (delivery) {
               case 'not-applicable':
                 assert.equal(block.dataset.deliveryStatus, 'not-applicable');
+                sinon.assert.notCalled(Template.prototype.interpolate);
                 return;
               case 'pending':
                 data.titleL10n = 'report-status-pending';
@@ -850,8 +864,6 @@ suite('Information view', function() {
             block = getInfoBlock(reportView.renderContactList);
             switch (delivery) {
               case 'not-applicable':
-                assert.equal(block.dataset.deliveryStatus, 'pending');
-                return;
               case 'pending':
                 data.titleL10n = 'report-status-pending';
                 assert.equal(block.dataset.deliveryStatus, 'pending');
@@ -1053,6 +1065,8 @@ suite('Information view', function() {
       });
       groupView = new Information('group');
       this.sinon.spy(groupView, 'renderContactList');
+      this.sinon.spy(ContactRenderer, 'flavor');
+
       groupView.render();
     });
 
@@ -1063,10 +1077,9 @@ suite('Information view', function() {
       sinon.assert.calledWith(groupView.renderContactList, participants);
       sinon.assert.calledWithMatch(
         navigator.mozL10n.setAttributes,
-        ThreadUI.headerText,
-        'participant',
-        {n: participants.length}
+        groupView.headerText, 'participant', { n:participants.length }
       );
+      sinon.assert.calledWith(ContactRenderer.flavor, 'group-view');
     });
   });
 

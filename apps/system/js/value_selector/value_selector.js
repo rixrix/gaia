@@ -26,8 +26,8 @@
 
     app.element.addEventListener('_opening', this);
     app.element.addEventListener('_closing', this);
+    app.element.addEventListener('_closed', this);
     app.element.addEventListener('_inputmethod-contextchange', this);
-    app.element.addEventListener('_sheetsgesturebegin', this);
     app.element.addEventListener('_localized', this);
     window.addEventListener('timeformatchange', this);
   };
@@ -73,6 +73,7 @@
         break;
       case '_opening':
       case '_closing':
+      case '_closed':
         if (this._injected) {
           this.hide();
         }
@@ -94,12 +95,6 @@
         if (this._timePicker) {
           this._timePicker.uninit();
           this._timePicker = null;
-        }
-        break;
-      case '_sheetsgesturebegin':
-        // Only cancel if the value selector was rendered.
-        if (this._injected) {
-          this.cancel();
         }
         break;
       case '_inputmethod-contextchange':
@@ -239,6 +234,9 @@
     }
     this.element.blur();
     this.element.hidden = true;
+    if (this.app.getBottomMostWindow().isActive() && this.app.isActive()) {
+      this.app.focus();
+    }
     this.publish('hidden');
   };
 

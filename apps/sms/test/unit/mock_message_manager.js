@@ -5,6 +5,7 @@
 
 var MockMessageManager = {
   _message: null,
+  init: () => {},
   getThreads: function() {},
   getMessages: function() {},
   getMessage: function() {
@@ -16,10 +17,6 @@ var MockMessageManager = {
       callback();
     }
   },
-  launchComposer: function() {},
-  handleActivity: function() {},
-  handleForward: function() {},
-  registerMessage: function() {},
   sendSMS: function() {
     return {};
   },
@@ -30,6 +27,7 @@ var MockMessageManager = {
   retrieveMMS: function() {},
   markMessagesRead: function() {},
   markThreadRead: function() {},
+  findThreadFromNumber: function() {},
   getSegmentInfo: function() {
     return Promise.reject(new Error('not implemented '));
   },

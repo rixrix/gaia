@@ -3,18 +3,30 @@ define(function(require, exports, module) {
 'use strict';
 
 var NotificationHelper = require('shared/notification_helper');
+var debug = require('debug')('notification');
+var performance = require('performance');
+var router = require('router');
 
 var cachedSelf;
 
-// Will be injected...
-exports.app = null;
-
 exports.sendNotification = function(title, body, url) {
   return getSelf().then(app => {
+    if (!app) {
+      // This is perhaps a test environment?
+      debug('mozApps.getSelf gave us lemons!');
+      return Promise.resolve();
+    }
+
     var icon = NotificationHelper.getIconURI(app);
     icon += '?';
     icon += url;
-    var notification = new Notification(title, { body: body, icon: icon });
+    var notification = new Notification(title, {
+      body: body,
+      icon: icon,
+      // we use the URL as the ID so we display a single notification for each
+      // busytime (it will override previous notifications)
+      tag: url
+    });
     return new Promise((resolve, reject) => {
       notification.onshow = resolve;
       notification.onerror = reject;
@@ -52,12 +64,37 @@ function getSelf() {
  * Start the calendar app and open the url.
  */
 function launch(url) {
-  return getSelf().then(app => {
-    if (app) {
-      app.launch();
-    }
+  // we close all the notifications for the same busytime when we launch the
+  // app; we do it like this to make sure we use the same codepath for cases
+  // where notification was handled by mozSetMessageHandler or by the
+  // Notification instance onclick listener (Bug 1132336)
+  closeNotifications(url);
 
-    exports.app.go(url);
+  if (performance.isComplete('moz-app-loaded')) {
+    return foreground(url);
+  }
+
+  // If we're not fully loaded, wait for that to happen to foreground
+  // ourselves and navigate to the target url so the user
+  // experiences less flickering.
+  window.addEventListener('moz-app-loaded', function onMozAppLoaded() {
+    window.removeEventListener('moz-app-loaded', onMozAppLoaded);
+    return foreground(url);
+  });
+}
+exports.launch = launch;
+
+// Bring ourselves to the foreground at some url.
+function foreground(url) {
+  return getSelf().then(app => {
+    router.go(url);
+    return app && app.launch();
+  });
+}
+
+function closeNotifications(url) {
+  Notification.get({ tag: url }).then(notifications => {
+    notifications.forEach(n => n.close());
   });
 }
 

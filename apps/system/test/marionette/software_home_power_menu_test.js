@@ -1,7 +1,5 @@
 'use strict';
 
-var System = require('./lib/system');
-
 marionette('Software Home Button - Power Menu', function() {
 
   var client = marionette.client({
@@ -10,15 +8,13 @@ marionette('Software Home Button - Power Menu', function() {
       'dom.w3c_touch_events.enabled': 1
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false,
       'software-button.enabled': true
     }
   });
   var system;
 
   setup(function() {
-    system = new System(client);
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
   });
 

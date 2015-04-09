@@ -1,6 +1,4 @@
-'use strict';
-/* global
-   MocksHelper,
+/* global MocksHelper,
    MockL10n,
    MockMozActivity,
    MockNavigatorMozTelephony,
@@ -10,10 +8,11 @@
    MockSIMSlotManager,
    ModalDialog,
    Notification,
-   SettingsHelper,
    SIMSlotManager,
    Voicemail
 */
+
+'use strict';
 
 requireApp('system/js/voicemail.js');
 requireApp('system/shared/js/settings_helper.js');
@@ -27,10 +26,6 @@ requireApp('system/test/unit/mock_modal_dialog.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_moz_settings.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_moz_telephony.js');
 requireApp('system/shared/test/unit/mocks/mock_settings_helper.js');
-
-mocha.setup({
-  globals: ['SIMSlotManager', 'MozActivity']
-});
 
 var mocksForVoicemail = new MocksHelper([
   'ModalDialog'
@@ -62,8 +57,8 @@ suite('voicemail notification', function() {
     realL10n = navigator.mozL10n;
     navigator.mozL10n = MockL10n;
 
-    realSettingsHelper = SettingsHelper;
-    SettingsHelper = MockSettingsHelper;
+    realSettingsHelper = window.SettingsHelper;
+    window.SettingsHelper = MockSettingsHelper;
 
     realMozTelephony = navigator.mozTelephony;
     navigator.mozTelephony = MockNavigatorMozTelephony;
@@ -88,7 +83,7 @@ suite('voicemail notification', function() {
     navigator.mozSettings = realMozSettings;
     navigator.mozL10n = realL10n;
     window.SIMSlotManager = realSIMSlotManager;
-    SettingsHelper = realSettingsHelper;
+    window.SettingsHelper = realSettingsHelper;
     navigator.mozTelephony = realMozTelephony;
     window.MozActivity = realMozActivity;
   });
@@ -327,6 +322,9 @@ suite('voicemail notification', function() {
               assert.equal(notificationSpy.firstCall.args[1].body, 'bbbb');
               assert.equal(notificationSpy.firstCall.args[1].tag,
                            'voicemailNotification:' + serviceId);
+              assert.equal(
+                notificationSpy.firstCall.args[1].mozbehavior.showOnlyOnce,
+                true);
 
               if (this.isMultiSIM) {
                 assert.equal(

@@ -1,6 +1,6 @@
 'use strict';
 
-/* globals MockNavigatorMozMobileConnections */
+/* globals MockNavigatorMozMobileConnections, Service */
 
 requireApp('system/js/update_manager.js');
 
@@ -12,7 +12,7 @@ requireApp('system/test/unit/mock_utility_tray.js');
 requireApp('system/test/unit/mock_system_banner.js');
 requireApp('system/test/unit/mock_chrome_event.js');
 requireApp('system/shared/test/unit/mocks/mock_settings_listener.js');
-requireApp('system/test/unit/mock_statusbar.js');
+requireApp('system/js/service.js');
 requireApp('system/test/unit/mock_notification_screen.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_moz_settings.js');
 requireApp('system/shared/test/unit/mocks/mock_navigator_wake_lock.js');
@@ -24,7 +24,6 @@ requireApp('system/test/unit/mock_asyncStorage.js');
 require('/test/unit/mock_update_manager.js');
 
 var mocksForUpdateManager = new MocksHelper([
-  'StatusBar',
   'SystemBanner',
   'NotificationScreen',
   'UtilityTray',
@@ -112,6 +111,7 @@ suite('system/UpdateManager', function() {
   });
 
   setup(function() {
+    this.sinon.stub(Service, 'request');
     // they are automatically restored at teardown by the test agent
     this.sinon.useFakeTimers();
 
@@ -390,6 +390,82 @@ suite('system/UpdateManager', function() {
 
       test('should not remember about the update', function() {
           assert.isUndefined(UpdateManager.systemUpdatable.mKnownUpdate);
+      });
+    });
+
+    suite('device locked', function() {
+      setup(function() {
+        UpdateManager.init();
+      });
+
+      test('should close all dialogs', function() {
+        UpdateManager.showDownloadPrompt();
+        window.dispatchEvent(new CustomEvent('lockscreen-appopened'));
+        assert.isFalse(UpdateManager.downloadDialog.
+          classList.contains('visible'));
+        assert.isFalse(UpdateManager.downloadViaDataConnectionDialog.
+          classList.contains('visible'));
+        assert.isFalse(MockCustomDialog.mShown);
+      });
+
+      var testCases = [
+        {
+          title: 'should dispatchEvent updatepromptshown, showDownloadPrompt',
+          eventType: 'updatepromptshown',
+          method: 'showDownloadPrompt'
+        },
+        {
+          title: 'should dispatchEvent updatepromptshown,' +
+            'showPromptWifiPrioritized',
+          eventType: 'updatepromptshown',
+          method: 'showPromptWifiPrioritized'
+        },
+        {
+          title: 'should dispatchEvent updatepromptshown,' +
+            'showForbiddenDownload',
+          eventType: 'updatepromptshown',
+          method: 'showForbiddenDownload'
+        },
+        {
+          title: 'should dispatchEvent updatepromptshown,' +
+            'showPromptNoConnection',
+          eventType: 'updatepromptshown',
+          method: 'showPromptNoConnection'
+        },
+        {
+          title: 'should dispatchEvent updateprompthidden,' +
+            ' cancelPrompt',
+          eventType: 'updateprompthidden',
+          method: 'cancelPrompt'
+        }
+      ];
+
+      testCases.forEach(function(testCase) {
+        test(testCase.title, function(done) {
+          window.addEventListener(testCase.eventType, function listener(evt) {
+            window.removeEventListener(testCase.eventType, listener);
+            assert.equal(testCase.eventType, evt.type);
+            done();
+          });
+
+          switch (testCase.method) {
+            case 'showDownloadPrompt':
+              UpdateManager.showDownloadPrompt();
+              break;
+            case 'showPromptWifiPrioritized':
+              UpdateManager.showPromptWifiPrioritized();
+              break;
+            case 'showForbiddenDownload':
+              UpdateManager.showForbiddenDownload();
+              break;
+            case 'showPromptNoConnection':
+              UpdateManager.showPromptNoConnection();
+              break;
+            case 'cancelPrompt':
+              UpdateManager.cancelPrompt();
+              break;
+          }
+        });
       });
     });
   });
@@ -1004,35 +1080,6 @@ suite('system/UpdateManager', function() {
       test('should leave the updates available', function() {
         assert.equal(UpdateManager.updatesQueue.length, 2);
       });
-
-      suite('_dataConnectionWarningEnabled should not be affected by' +
-        'canceling downloads', function() {
-        let systemUpdatable;
-
-        setup(function() {
-          systemUpdatable = new MockSystemUpdatable();
-          UpdateManager.updatableApps = updatableApps;
-          [systemUpdatable, uAppWithDownloadAvailable].forEach(
-            function(updatable) {
-              UpdateManager.addToUpdatesQueue(updatable);
-              UpdateManager.addToDownloadsQueue(updatable);
-            });
-        });
-
-        test('_dataConnectionWarningEnabled should be true if it was true',
-          function() {
-            UpdateManager._dataConnectionWarningEnabled = true;
-            UpdateManager.cancelAllDownloads();
-            assert.isTrue(UpdateManager._dataConnectionWarningEnabled);
-        });
-
-        test('_dataConnectionWarningEnabled should be false if it was false',
-          function() {
-            UpdateManager._dataConnectionWarningEnabled = false;
-            UpdateManager.cancelAllDownloads();
-            assert.isFalse(UpdateManager._dataConnectionWarningEnabled);
-        });
-      });
     });
 
     suite('downloaded', function() {
@@ -1051,18 +1098,12 @@ suite('system/UpdateManager', function() {
           UpdateManager._startedDownloadUsingDataConnection = true;
           UpdateManager.downloaded(updatableApp);
           assert.isFalse(UpdateManager._startedDownloadUsingDataConnection);
-          assert.isFalse(UpdateManager._dataConnectionWarningEnabled);
-          assert.equal(downloadDialog.dataset.dataConnectionInlineWarning,
-            'true');
       });
 
       test('should handle downloaded when started using wifi', function() {
         UpdateManager._startedDownloadUsingDataConnection = false;
         UpdateManager.downloaded(updatableApp);
         assert.isFalse(UpdateManager._startedDownloadUsingDataConnection);
-        assert.isTrue(UpdateManager._dataConnectionWarningEnabled);
-        assert.equal(downloadDialog.dataset.dataConnectionInlineWarning,
-          'false');
       });
     });
 
@@ -1081,7 +1122,6 @@ suite('system/UpdateManager', function() {
         UpdateManager.updatesQueue = [hostedAppUpdatable, appUpdatable,
                                       systemUpdatable];
         UpdateManager.containerClicked();
-        UpdateManager._dataConnectionWarningEnabled = true;
         UpdateManager._startedDownloadUsingDataConnection = false;
         UpdateManager.downloadDialog.dataset.nowifi = false;
 
@@ -1248,6 +1288,19 @@ suite('system/UpdateManager', function() {
     var showAdditionalCostIfNeededSpy;
     var getDataRoamingSettingSpy;
     var checkUpdate2gEnabled;
+    var showPromptNoConnectionSpy;
+    var mockMozWifiManager;
+    var mockMozMobileConnections;
+    var realOnLine;
+    var isOnLine = true;
+
+    function navigatorOnLine() {
+      return isOnLine;
+    }
+
+    function setNavigatorOnLine(value) {
+      isOnLine = value;
+    }
 
     setup(function() {
       this.sinon.useFakeTimers();
@@ -1256,6 +1309,14 @@ suite('system/UpdateManager', function() {
         UpdateManager.downloadDialog.classList.remove('visible');
         return true;
       };
+      mockMozWifiManager = navigator.mozWifiManager;
+      mockMozMobileConnections = navigator.mozMobileConnections;
+      realOnLine = Object.getOwnPropertyDescriptor(navigator, 'onLine');
+      Object.defineProperty(navigator, 'onLine', {
+        configurable: true,
+        get: navigatorOnLine,
+        set: setNavigatorOnLine
+      });
 
       showForbiddenDwnSpy =
         this.sinon.spy(UpdateManager, 'showForbiddenDownload');
@@ -1271,13 +1332,21 @@ suite('system/UpdateManager', function() {
         this.sinon.spy(UpdateManager, '_getDataRoamingSetting');
       checkUpdate2gEnabled =
         this.sinon.spy(UpdateManager, 'getUpdate2GEnabled');
+      showPromptNoConnectionSpy =
+        this.sinon.spy(UpdateManager, 'showPromptNoConnection');
       UpdateManager.init();
-
     });
 
     teardown(function() {
       this.sinon.clock.restore();
       UpdateManager.startDownloads = realStartDownloadsFunc;
+      UpdateManager.downloadDialog.dataset.online = true;
+
+      if (realOnLine) {
+        Object.defineProperty(navigator, 'onLine', realOnLine);
+      }
+      navigator.mozWifiManager = mockMozWifiManager;
+      navigator.mozMobileConnections = mockMozMobileConnections;
       navigator.mozWifiManager.connection.status = 'connected';
     });
 
@@ -1505,7 +1574,7 @@ suite('system/UpdateManager', function() {
         ],
         update2g: false,
         wifiPrioritized: true,
-        testResult: 'wifiPrioritizedAndForbidden'
+        testResult: 'forbidden'
       },
       {
         title: 'Not WIFI, 2G, no Setting update2G, wifi not prioritized' +
@@ -1523,6 +1592,38 @@ suite('system/UpdateManager', function() {
         update2g: false,
         wifiPrioritized: false,
         testResult: 'forbidden'
+      },
+      {
+        title: 'Not WIFI, No Data connection -> download not available',
+        wifi: false,
+        conns: [
+          {
+            connected: false
+          },
+          {
+            type: 'gprs',
+            connected: false
+          }
+        ],
+        update2g: false,
+        wifiPrioritized: false,
+        noConnection: true,
+        testResult: 'noConnection'
+      },
+      {
+        title: 'B2G/Mulet download, navigator online -> download available',
+        onLine: true,
+        testResult: 'startDownloads'
+      },
+      {
+        title: 'B2G/Mulet download, navigator offline' +
+          '-> download not available',
+        onLine: false,
+        testResult: 'noConnection'
+      },
+      {
+        title: 'Connections undefined -> download not available',
+        testResult: 'noConnection'
       }
     ];
 
@@ -1541,19 +1642,32 @@ suite('system/UpdateManager', function() {
           MockNavigatorSettings.mSettings[UpdateManager.WIFI_PRIORITIZED_KEY] =
             testCase.wifiPrioritized;
         }
+        if (testCase.onLine === undefined) {
+          navigator.mozWifiManager.connection.status =
+            testCase.wifi ? 'connected' : 'disconnected';
+        } else {
+          navigator.mozWifiManager = null;
+          navigator.onLine = testCase.onLine ? true : false;
+        }
         MockNavigatorSettings.mSettings['ril.data.roaming_enabled'] =
           testCase.roaming ? true : false;
-        navigator.mozWifiManager.connection.status =
-          testCase.wifi ? 'connected' : 'disconnected';
 
-        for (var i = 0, iLen = testCase.conns.length;
-             i < iLen && i < MOBILE_CONNECTION_COUNT;
-             i++) {
-          MockNavigatorMozMobileConnections[i].data = {
-            connected: testCase.conns[i].connected,
-            type: testCase.conns[i].type,
-            roaming: (testCase.roaming ? true : false)
-          };
+        if (testCase.conns === undefined) {
+          navigator.mozMobileConnections = null;
+        } else {
+          for (var i = 0, iLen = testCase.conns.length;
+               i < iLen && i < MOBILE_CONNECTION_COUNT;
+               i++) {
+            MockNavigatorMozMobileConnections[i].data = {
+              connected: testCase.conns[i].connected,
+              type: testCase.conns[i].type,
+              roaming: (testCase.roaming ? true : false)
+            };
+          }
+        }
+
+        if (testCase.noConnection) {
+          UpdateManager.downloadDialog.dataset.online = false;
         }
 
         UpdateManager.promptOrDownload();
@@ -1584,14 +1698,6 @@ suite('system/UpdateManager', function() {
                 'wifi prioritized dialog is shown to the user');
             }).then(done, done);
             break;
-          case 'wifiPrioritizedAndForbidden':
-            Promise.all([checkWifiPrioritizedSpy.lastCall.returnValue,
-              checkUpdate2gEnabled.lastCall.returnValue]).then(function() {
-              assert.ok(showPromptWifiPrioritizedSpy.calledWith(
-                UpdateManager.showForbiddenDownload),
-                'wifi prioritized dialog called with a callback');
-            }).then(done, done);
-            break;
           case 'forbidden':
             Promise.all([checkWifiPrioritizedSpy.lastCall.returnValue,
               checkUpdate2gEnabled.lastCall.returnValue]).then(function() {
@@ -1619,6 +1725,10 @@ suite('system/UpdateManager', function() {
                   'downloadUpdatesViaDataRoamingConnectionMessage');
               }).then(done, done);
             }).then(done, done);
+            break;
+          case 'noConnection':
+            assert.isTrue(showPromptNoConnectionSpy.calledOnce);
+            done();
             break;
         }
       });
@@ -1792,8 +1902,8 @@ suite('system/UpdateManager', function() {
           });
 
           test('should ask for statusbar indicator', function() {
-            var incMethod = 'incSystemDownloads';
-            assert.ok(MockStatusBar.wasMethodCalled[incMethod]);
+            var incMethod = 'incDownloads';
+            assert.isTrue(Service.request.calledWith(incMethod));
           });
 
           test('should request wifi wake lock', function() {
@@ -1848,8 +1958,8 @@ suite('system/UpdateManager', function() {
           });
 
           test('should remove statusbar indicator', function() {
-            var decMethod = 'decSystemDownloads';
-            assert.ok(MockStatusBar.wasMethodCalled[decMethod]);
+            var decMethod = 'decDownloads';
+            assert.isTrue(Service.request.calledWith(decMethod));
           });
 
           test('should release the wifi wake lock', function() {

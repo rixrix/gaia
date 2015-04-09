@@ -1,11 +1,8 @@
 'use strict';
 
 var AppInstall = require('./lib/app_install');
-var Home = require(
-  '../../../verticalhome/test/marionette/lib/home2');
 var createAppServer = require(
   '../../../verticalhome/test/marionette/server/parent');
-var System = require('./lib/system');
 
 marionette('Software Home Button - Notification Banner Test', function() {
 
@@ -15,8 +12,6 @@ marionette('Software Home Button - Notification Banner Test', function() {
       'dom.w3c_touch_events.enabled': 1
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false,
       'software-button.enabled': true
     }
   });
@@ -24,7 +19,7 @@ marionette('Software Home Button - Notification Banner Test', function() {
 
   suiteSetup(function(done) {
     // Any app that we can test the download success banner.
-    var app = __dirname + '/fullscreen-app';
+    var app = __dirname + '/../apps/fullscreen-app';
     createAppServer(app, client, function(err, _server) {
       server = _server;
       done(err);
@@ -37,8 +32,8 @@ marionette('Software Home Button - Notification Banner Test', function() {
 
   setup(function() {
     appInstall = new AppInstall(client);
-    home = new Home(client);
-    system = new System(client);
+    home = client.loader.getAppClass('verticalhome');
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
     home.waitForLaunch();
     client.switchToFrame();

@@ -736,6 +736,22 @@
         timestamp: now - (60000000 * 10),
         unreadCount: 0
       },
+      {
+        id: 13,
+        participants: ['+97121111111'],
+        body: 'مرحبا!',
+        lastMessageType: 'sms',
+        timestamp: now - (60000000 * 20),
+        unreadCount: 0
+      },
+      {
+        id: 14,
+        participants: ['+97121111111', '+15551237890'],
+        body: 'مرحبا! and Hello!',
+        lastMessageType: 'mms',
+        timestamp: now - (60000000 * 20),
+        unreadCount: 0
+      }
     ]
   };
 
@@ -845,6 +861,97 @@
     sentTimestamp: now - 100000
   });
 
+  messagesDb.messages.push({
+    threadId: 13,
+    sender: null,
+    receiver: '+197121111111',
+    read: true,
+    body: 'مرحبا!',
+    id: messagesDb.id++,
+    delivery: 'sent',
+    deliveryStatus: 'success',
+    deliveryTimestamp: now - (60000000 * 20),
+    type: 'sms',
+    timestamp: now - (60000000 * 20)
+  }, {
+    threadId: 13,
+    sender: '+197121111111',
+    receiver: null,
+    read: true,
+    subject: 'Subject field',
+    smil: '<smil><body><par><text src="text1"/></par></body></smil>',
+    attachments: [{
+      location: 'text1',
+      content: new Blob(
+        ['هذا هو الاختبار باللغة العربية\n' +
+         'This is the Arabic bidi message content test\n'],
+        { type: 'text/plain' }
+      )
+    }],
+    id: messagesDb.id++,
+    delivery: 'received',
+    deliveryInfo: [{deliveryStatus: 'success'}],
+    deliveryTimestamp: now - (60000000 * 15),
+    type: 'mms',
+    timestamp: now - (60000000 * 15)
+  }, {
+    threadId: 13,
+    sender: '+197121111111',
+    receiver: null,
+    read: true,
+    body: 'هذا هو رقم هاتفي: 1234-5678\n' +
+      'your email?',
+    id: messagesDb.id++,
+    delivery: 'received',
+    deliveryStatus: 'success',
+    deliveryTimestamp: now - (60000000 * 10),
+    type: 'sms',
+    timestamp: now - (60000000 * 10)
+  }, {
+    threadId: 13,
+    sender: null,
+    receiver: '+197121111111',
+    read: true,
+    subject: 'رئيسية',
+    smil: '<smil><body><par><text src="text1"/></par></body></smil>',
+    attachments: [{
+      location: 'text1',
+      content: new Blob(
+        ['ok\n' + 'abc@mail.com\n' + 'see you! ' + 'أراك!'],
+        { type: 'text/plain' }
+      )
+    }],
+    id: messagesDb.id++,
+    delivery: 'sent',
+    deliveryInfo: [{deliveryStatus: 'success'}],
+    deliveryTimestamp: now - (60000000 * 5),
+    type: 'mms',
+    timestamp: now - (60000000 * 5)
+  });
+
+  messagesDb.messages.push({
+    id: messagesDb.id++,
+    threadId: 14,
+    sender: '+97121111111',
+    receivers: ['+15551237890'],
+    read: true,
+    smil: '<smil><body><par><text src="text1"/></par></body></smil>',
+    attachments: [{
+      location: 'text1',
+      content: new Blob(
+        ['مرحبا! and Hello!'],
+        { type: 'text/plain' }
+      )
+    }],
+    delivery: 'sent',
+    deliveryInfo: [{
+      deliveryStatus: 'delivered',
+      deliveryTimestamp: now - (60000000 * 20),
+      receiver: '+15551237890'
+    }],
+    type: 'mms',
+    timestamp: now - (60000000 * 20)
+  });
 
   // Internal publisher/subscriber implementation
   var allHandlers = {};

@@ -6,7 +6,19 @@
 define(function(require) {
   'use strict';
 
-  var Bluetooth = require('modules/bluetooth');
+  var APIVersionDetector = require('modules/bluetooth/version_detector');
+  var SettingsService = require('modules/settings_service');
+
+  var APIVersion = APIVersionDetector.getVersion();
+
+  var _debug = false;
+  var Debug = function() {};
+  if (_debug) {
+    Debug = function bti_debug(msg) {
+      console.log('--> [BluetoothItem]: ' + msg);
+    };
+  }
+
   /**
    * @alias module:panels/root/bluetooth_item
    * @class BluetoothItem
@@ -24,6 +36,51 @@ define(function(require) {
 
   BluetoothItem.prototype = {
     /**
+     * Return Bluetooth API version via APIVersionDetector module.
+     *
+     * @access private
+     * @memberOf BluetoothItem.prototype
+     * @type {Number}
+     */
+    _APIVersion: function bt__APIVersion() {
+      return APIVersion;
+    },
+
+    /**
+     * An instance to maintain that we have created a promise to get Bluetooth
+     * module.
+     *
+     * @access private
+     * @memberOf BluetoothItem.prototype
+     * @type {Promise}
+     */
+    _getBluetoothPromise: null,
+
+    /**
+     * A promise function to get Bluetooth module.
+     *
+     * @access private
+     * @memberOf BluetoothItem.prototype
+     * @type {Promise}
+     */
+    _getBluetooth: function bt__getBluetooth() {
+      if (!this._getBluetoothPromise) {
+        this._getBluetoothPromise = new Promise(function(resolve) {
+          var bluetoothModulePath;
+          if (this._APIVersion() === 1) {
+            bluetoothModulePath = 'modules/bluetooth/bluetooth_v1';
+          } else if (this._APIVersion() === 2) {
+            Debug('loading.. modules/bluetooth/bluetooth_context');
+            bluetoothModulePath = 'modules/bluetooth/bluetooth_context';
+          }
+
+          require([bluetoothModulePath], resolve);
+        }.bind(this));
+      }
+      return this._getBluetoothPromise;
+    },
+
+    /**
      * Refresh the text based on the Bluetooth module enabled/disabled,
      * paired devices information.
      *
@@ -37,19 +94,22 @@ define(function(require) {
         return;
       }
 
-      if (Bluetooth.enabled) {
-        if (Bluetooth.numberOfPairedDevices === 0) {
-          element.setAttribute('data-l10n-id', 'bt-status-nopaired');
+      this._getBluetooth().then(function(bluetooth) {
+        Debug('Got bluetooth context');
+        if (bluetooth.enabled) {
+          if (bluetooth.numberOfPairedDevices === 0) {
+            element.setAttribute('data-l10n-id', 'bt-status-nopaired');
+          } else {
+            navigator.mozL10n.setAttributes(element, 'bt-status-paired',
+              {
+                name: bluetooth.firstPairedDeviceName,
+                n: bluetooth.numberOfPairedDevices - 1
+              });
+          }
         } else {
-          navigator.mozL10n.setAttributes(element, 'bt-status-paired',
-            {
-              name: Bluetooth.firstPairedDeviceName,
-              n: Bluetooth.numberOfPairedDevices - 1
-            });
+          element.setAttribute('data-l10n-id', 'bt-status-turnoff');
         }
-      } else {
-        element.setAttribute('data-l10n-id', 'bt-status-turnoff');
-      }
+      });
     },
 
     /**
@@ -69,15 +129,36 @@ define(function(require) {
       }
 
       this._enabled = value;
-      if (this._enabled) {
-        Bluetooth.observe('enabled', this._boundRefreshMenuDescription);
-        Bluetooth.observe('numberOfPairedDevices',
-          this._boundRefreshMenuDescription);
-        this._boundRefreshMenuDescription();
-      } else {
-        Bluetooth.unobserve('enabled', this._boundRefreshMenuDescription);
-        Bluetooth.unobserve('numberOfPairedDevices',
-          this._boundRefreshMenuDescription);
+      this._getBluetooth().then(function(bluetooth) {
+        if (this._enabled) {
+          bluetooth.observe('enabled', this._boundRefreshMenuDescription);
+          bluetooth.observe('numberOfPairedDevices',
+            this._boundRefreshMenuDescription);
+          this._boundRefreshMenuDescription();
+        } else {
+          bluetooth.unobserve('enabled', this._boundRefreshMenuDescription);
+          bluetooth.unobserve('numberOfPairedDevices',
+            this._boundRefreshMenuDescription);
+        }
+      }.bind(this));
+    },
+
+    /**
+     * Navigate new/old Bluetooth panel via version of mozBluetooth API.
+     *
+     * @access private
+     * @memberOf BluetoothItem.prototype
+     * @type {Function}
+     */
+    _navigatePanelWithVersionCheck:
+    function bt__navigatePanelWithVersionCheck() {
+      if (this._APIVersion() === 1) {
+        // navigate old bluetooth panel..
+        SettingsService.navigate('bluetooth');
+      } else if (this._APIVersion() === 2) {
+        // navigate new bluetooth panel..
+        Debug('navigate bluetooth_v2 panel');
+        SettingsService.navigate('bluetooth_v2');
       }
     }
   };

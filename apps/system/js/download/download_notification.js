@@ -13,10 +13,17 @@ function DownloadNotification(download) {
   this.state = 'started';
   this.id = DownloadFormatter.getUUID(download);
 
-  NotificationScreen.addNotification(this._getInfo());
-
   // We have to listen for state changes
-  this.download.onstatechange = this._update.bind(this);
+  this.listener = this._update.bind(this);
+  this.download.addEventListener('statechange', this.listener);
+
+  if (download.state === 'started') {
+    NotificationScreen.addNotification(this._getInfo());
+  } else {
+    // For adopted downloads, it is possible for the download to already be
+    // completed.
+    this._update();
+  }
 }
 
 DownloadNotification.prototype = {
@@ -36,29 +43,13 @@ DownloadNotification.prototype = {
   },
 
   /**
-   * This method is in charge of incrementing/decrementing the system downloads
-   * according to previous and current states
-   */
-  _updateSystemDownloads: function dn_updateSystemDownloads() {
-    var prevState = this.state;
-    var newState = this.download.state;
-    if (prevState !== newState) {
-      if (newState === 'downloading') {
-        StatusBar.incSystemDownloads();
-      } else if (prevState === 'downloading') {
-        StatusBar.decSystemDownloads();
-      }
-    }
-  },
-
-  /**
    * It updates the notification when the download state changes.
    */
   _update: function dn_update() {
-    this._updateSystemDownloads();
     if (this.download.state === 'finalized') {
-      // In theory we should never see this, but, we know that if we were
-      // to see this we want to do nothing.
+      // If the user delete the file, we will see this state and what we have to
+      // do, is to remove the notification
+      this._close();
       return;
     }
     var noNotify = this._wontNotify();
@@ -137,16 +128,9 @@ DownloadNotification.prototype = {
 
     req.onsuccess = (function _storeDownloadOnSuccess(request) {
       // We don't care about any more state changes to the download.
-      download.onstatechange = null;
+      this.download.removeEventListener('statechange', this.listener);
       // Update the download object to the datastore representation.
       this.download = req.result;
-
-      var mozDownloadManager = navigator.mozDownloadManager;
-      if (mozDownloadManager) {
-        // Once we've added the download to our data store we own it so clear
-        // all references to it from the Downloads API.
-        mozDownloadManager.clearAllDone();
-      }
     }).bind(this);
 
     req.onerror = function _storeDownloadOnError(e) {

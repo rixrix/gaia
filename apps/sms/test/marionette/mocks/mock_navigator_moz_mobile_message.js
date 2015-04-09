@@ -32,10 +32,11 @@ Services.obs.addObserver(function(document) {
 
     if (!threadId) {
       threadId = recipientToThreadId.size + 1;
-      threads.set(threadId, {
+      threads.set(threadId, Cu.waiveXrays(Cu.cloneInto({
         id: threadId,
         messages: []
-      });
+      }, window)));
+      recipientToThreadId.set(recipient, threadId);
     }
 
     return threads.get(threadId);

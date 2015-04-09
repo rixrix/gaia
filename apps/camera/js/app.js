@@ -52,6 +52,7 @@ function App(options) {
   this.pinch = options.pinch || new Pinch(this.el); // Test hook
   this.require = options.require || window.requirejs; // Test hook
   this.LoadingView = options.LoadingView || LoadingView; // test hook
+  this.orientation = options.orientation || orientation; // test hook
   this.inSecureMode = (this.win.location.hash === '#secure');
   this.controllers = options.controllers;
   this.geolocation = options.geolocation;
@@ -84,7 +85,9 @@ App.prototype.boot = function() {
   // PERFORMANCE EVENT (2): moz-chrome-interactive
   // Designates that the app's *core* chrome or navigation interface
   // has its events bound and is ready for user interaction.
+  window.performance.mark('navigationLoaded');
   this.dispatchEvent('moz-chrome-dom-loaded');
+  window.performance.mark('navigationInteractive');
   this.dispatchEvent('moz-chrome-interactive');
 
   this.injectViews();
@@ -110,8 +113,8 @@ App.prototype.runControllers = function() {
   this.controllers.activity(this);
   this.controllers.camera(this);
   this.controllers.viewfinder(this);
-  this.controllers.controls(this);
   this.controllers.hud(this);
+  this.controllers.controls(this);
   debug('controllers run');
 };
 
@@ -168,6 +171,7 @@ App.prototype.bindEvents = function() {
   this.on('ready', this.clearSpinner);
   this.on('visible', this.onVisible);
   this.on('hidden', this.onHidden);
+  this.on('reboot', this.onReboot);
   this.on('busy', this.onBusy);
 
   // Pinch
@@ -183,7 +187,9 @@ App.prototype.bindEvents = function() {
   // we bind to window.onlocalized in order not to depend
   // on l10n.js loading (which is lazy). See bug 999132
   bind(this.win, 'localized', this.firer('localized'));
+
   bind(this.win, 'beforeunload', this.onBeforeUnload);
+  bind(this.win, 'keydown', this.onKeyDown);
   bind(this.el, 'click', this.onClick);
   debug('events bound');
 };
@@ -198,7 +204,8 @@ App.prototype.bindEvents = function() {
  */
 App.prototype.onVisible = function() {
   this.geolocationWatch();
-  orientation.start();
+  this.orientation.start();
+  this.orientation.lock();
   debug('visible');
 };
 
@@ -210,9 +217,21 @@ App.prototype.onVisible = function() {
  */
 App.prototype.onHidden = function() {
   this.geolocation.stopWatching();
-  orientation.stop();
+  this.orientation.stop();
   debug('hidden');
 };
+
+
+/**
+ * Reboots the application
+ *
+ * @private
+ */
+App.prototype.onReboot = function() {
+  debug('reboot');
+  window.location.reload();
+};
+
 
 /**
  * Emit a click event that other
@@ -233,11 +252,11 @@ App.prototype.onClick = function() {
 App.prototype.onCriticalPathDone = function() {
   if (this.criticalPathDone) { return; }
   debug('critical path done');
-
   // PERFORMANCE EVENT (3): moz-app-visually-complete
   // Designates that the app is visually loaded (e.g.: all of the
   // "above-the-fold" content exists in the DOM and is marked as
   // ready to be displayed).
+  window.performance.mark('visuallyLoaded');
   this.dispatchEvent('moz-app-visually-complete');
 
   // Load non-critical modules
@@ -255,6 +274,7 @@ App.prototype.loadLazyModules = function() {
 
   this.loadL10n(done());
   this.loadLazyControllers(done());
+  this.once('storage:checked', done());
 
   // All done
   done(function() {
@@ -264,6 +284,7 @@ App.prototype.loadLazyModules = function() {
     // Designates that the app has its events bound for the minimum
     // set of functionality to allow the user to interact with the
     // "above-the-fold" content.
+    window.performance.mark('contentInteractive');
     self.dispatchEvent('moz-content-interactive');
 
     // PERFORMANCE EVENT (5): moz-app-loaded
@@ -271,6 +292,7 @@ App.prototype.loadLazyModules = function() {
     // "below-the-fold" content exists in the DOM, is marked visible,
     // has its events bound and is ready for user interaction. All
     // required startup background processing should be complete.
+    window.performance.mark('fullyLoaded');
     self.dispatchEvent('moz-app-loaded');
     self.perf.loaded = Date.now();
     self.loaded = true;
@@ -326,7 +348,6 @@ App.prototype.onVisibilityChange = function() {
  * @private
  */
 App.prototype.onBeforeUnload = function() {
-  this.views.viewfinder.stopStream();
   this.emit('beforeunload');
   debug('beforeunload');
 };
@@ -479,5 +500,25 @@ App.prototype.listenForStopRecordingEvent = function() {
   stopRecordingEvent.start();
   addEventListener('stoprecording', this.firer('stoprecording'));
 };
+
+
+/**
+ * When the device's hardware keys
+ * are pressed we emit a global
+ * app event that other controllers
+ * can respond to.
+ *
+ * TIP: Check config.js for the map
+ * of key names to types.
+ *
+ * @param  {Event} e
+ * @private
+ */
+App.prototype.onKeyDown = function(e) {
+  var key = e.key.toLowerCase();
+  var type = this.settings.keyDownEvents.get(key);
+  if (type) { this.emit('keydown:' + type, e); }
+};
+
 
 });

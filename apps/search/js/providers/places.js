@@ -1,5 +1,5 @@
-/* globals DataGridProvider, SyncDataStore, Promise, IconsHelper */
-/* globals Search, GaiaGrid, PlacesIdbStore */
+/* globals Provider, SyncDataStore, Promise, IconsHelper */
+/* globals Search, PlacesIdbStore */
 /* globals DateHelper */
 /* globals asyncStorage */
 /* globals LazyLoader */
@@ -152,9 +152,10 @@
     }
 
     var h3 = document.createElement('h3');
-    var textNode = document.createTextNode(text);
+    var spanNode = document.createElement('span');
+    spanNode.textContent = text;
     var ul = listTemplate.cloneNode(true);
-    h3.appendChild(textNode);
+    h3.appendChild(spanNode);
     parent.appendChild(h3);
     parent.appendChild(ul);
   }
@@ -275,28 +276,24 @@
 
   function formatPlace(placeObj, filter) {
 
-    var bookmarkData = {
-      id: placeObj.url,
-      name: placeObj.title || placeObj.url,
-      url: placeObj.url
+    var result = {
+      'title': placeObj.title,
+      'meta': placeObj.url,
+      'icon': getIcon(placeObj),
+      'dataset': {
+        'url': placeObj.url
+      },
+      'label': placeObj.title
     };
 
-    var icon = getIcon(placeObj);
-    if (icon) {
-      bookmarkData.icon = URL.createObjectURL(icon);
-      bookmarkData.iconUrl = iconUrls[placeObj.url];
-    }
-
-    return {
-      data: new GaiaGrid.Bookmark(bookmarkData)
-    };
+    return result;
   }
 
   function Places() {}
 
   Places.prototype = {
 
-    __proto__: DataGridProvider.prototype,
+    __proto__: Provider.prototype,
 
     name: 'Places',
 
@@ -304,7 +301,14 @@
 
     init: function() {
 
-      DataGridProvider.prototype.init.apply(this, arguments);
+      // If not on new tab page, set places div as container
+      if (!topSitesWrapper || !historyWrapper) {
+        this.header = document.getElementById(this.name.toLowerCase() +
+          '-header');
+        this.container = document.getElementById(this.name.toLowerCase());
+        this.container.addEventListener('click', this.click.bind(this));
+      }
+
       this.persistStore = new PlacesIdbStore();
 
       this.persistStore.init().then(() => {
@@ -368,6 +372,9 @@
             return formatPlace(result, filter);
           }));
         }, function filterFun(result) {
+          if (result.frecency <= 0) {
+            return false;
+          }
           var url = parseUrl(result.url);
           var matches = !(url.hostname in matchedOrigins) &&
             (matchesFilter(result.title, filter) ||

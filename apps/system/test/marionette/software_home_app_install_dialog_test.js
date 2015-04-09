@@ -3,11 +3,7 @@
 var url = require('url');
 
 var AppInstall = require('./lib/app_install');
-var Home = require(
-  '../../../verticalhome/test/marionette/lib/home2');
 var Server = require('../../../../shared/test/integration/server');
-var System = require('./lib/system');
-
 marionette('Software Home Button - App Install Dialog', function() {
 
   var client = marionette.client({
@@ -16,8 +12,6 @@ marionette('Software Home Button - App Install Dialog', function() {
       'dom.w3c_touch_events.enabled': 1
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false,
       'software-button.enabled': true
     }
   });
@@ -41,8 +35,8 @@ marionette('Software Home Button - App Install Dialog', function() {
 
   setup(function() {
     appInstall = new AppInstall(client);
-    home = new Home(client);
-    system = new System(client);
+    home = client.loader.getAppClass('verticalhome');
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
     home.waitForLaunch();
     client.switchToFrame();

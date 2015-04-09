@@ -41,6 +41,10 @@
   pointer-events: auto;
 }
 
+#app-uninstall-dialog {
+  position: absolute;
+}
+
 #setup-installed-app-dialog section,
 #ime-layout-dialog section,
 #app-install-dialog section,
@@ -63,6 +67,10 @@
   margin-right: 1rem;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+#app-install-author-url {
+  direction: ltr;
 }
 
 #app-install-cancel-dialog small:first-child {

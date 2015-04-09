@@ -28,14 +28,15 @@ describe('Attributes', function(){
     });
 
     it('returns the value', function(){
-      var entity = Resolver.formatEntity(env.foo);
-      assert.strictEqual(entity.attrs.attr, 'An attribute');
+      var formatted = Resolver.format(null, env.foo.attrs.attr);
+      assert.strictEqual(formatted[0].overlay, false);
+      assert.strictEqual(formatted[1], 'An attribute');
     });
 
     it('returns the value with a placeable', function(){
-      var entity = Resolver.formatEntity(env.foo);
-      assert.strictEqual(entity.attrs.attrComplex,
-                         'An attribute referencing Bar');
+      var formatted = Resolver.format(null, env.foo.attrs.attrComplex);
+      assert.strictEqual(formatted[0].overlay, false);
+      assert.strictEqual(formatted[1], 'An attribute referencing Bar');
     });
 
   });
@@ -45,19 +46,21 @@ describe('Attributes', function(){
     before(function() {
       source = [
         'update=Update',
-        'update.innerHTML={[ plural(n) ]}',
-        'update.innerHTML[one]=One update available'
+        'update.title={[ plural(n) ]}',
+        'update.title[one]=One update available'
       ].join('\n');
     });
 
     it('returns the value of the entity', function(){
-      var value = Resolver.formatValue(env.update);
-      assert.strictEqual(value, 'Update');
+      var formatted = Resolver.format(null, env.update);
+      assert.strictEqual(formatted[0].overlay, false);
+      assert.strictEqual(formatted[1], 'Update');
     });
 
     it('returns the value of the attribute\'s member', function(){
-      var entity = Resolver.formatEntity(env.update, {n: 1});
-      assert.strictEqual(entity.attrs.innerHTML, 'One update available');
+      var formatted = Resolver.format({n: 1}, env.update.attrs.title);
+      assert.strictEqual(formatted[0].overlay, false);
+      assert.strictEqual(formatted[1], 'One update available');
     });
 
   });
@@ -70,20 +73,22 @@ describe('Attributes', function(){
         'update={[ plural(n) ]}',
         'update[one]=One update',
         'update[other]={{ n }} updates',
-        'update.innerHTML={[ plural(k) ]}',
-        'update.innerHTML[one]=One update innerHTML',
-        'update.innerHTML[other]={{ k }} updates innerHTML'
+        'update.title={[ plural(k) ]}',
+        'update.title[one]=One update title',
+        'update.title[other]={{ k }} updates title'
       ].join('\n');
     });
 
     it('returns the value of the entity', function(){
-      var entity = Resolver.formatEntity(env.update, {n: 1, k: 2});
-      assert.strictEqual(entity.value, 'One update');
+      var formatted = Resolver.format({n: 1, k: 2}, env.update);
+      assert.strictEqual(formatted[0].overlay, false);
+      assert.strictEqual(formatted[1], 'One update');
     });
 
     it('returns the value of the attribute', function(){
-      var entity = Resolver.formatEntity(env.update, {n: 1, k: 2});
-      assert.strictEqual(entity.attrs.innerHTML, '2 updates innerHTML');
+      var formatted = Resolver.format({n: 1, k: 2}, env.update.attrs.title);
+      assert.strictEqual(formatted[0].overlay, false);
+      assert.strictEqual(formatted[1], '2 updates title');
     });
 
   });
@@ -98,13 +103,13 @@ describe('Attributes', function(){
     });
 
     it('returns the value of the entity', function(){
-      var entity = Resolver.formatEntity(env.brandName);
-      assert.strictEqual(entity.value, 'Firefox');
+      var value = Resolver.format(null, env.brandName)[1];
+      assert.strictEqual(value, 'Firefox');
     });
 
     it('returns the value of the attribute', function(){
-      var entity = Resolver.formatEntity(env.brandName);
-      assert.strictEqual(entity.attrs.title, 'Mozilla Firefox');
+      var attr = Resolver.format(null, env.brandName.attrs.title)[1];
+      assert.strictEqual(attr, 'Mozilla Firefox');
     });
 
   });
@@ -119,9 +124,8 @@ describe('Attributes', function(){
     });
 
     it('returns the raw string of the attribute', function(){
-      var entity = Resolver.formatEntity(env.brandName);
-      assert.strictEqual(entity.attrs.title,
-                         'Mozilla {{ brandName.title }}');
+      var attr = Resolver.format(null, env.brandName.attrs.title)[1];
+      assert.strictEqual(attr, 'Mozilla {{ brandName.title }}');
     });
 
   });

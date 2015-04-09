@@ -117,6 +117,11 @@
         return;
       }
 
+      // Do not persist information for private browsers.
+      if (app && app.isPrivateBrowser()) {
+        return;
+      }
+
       switch (evt.type) {
         case 'applocationchange':
           this.onLocationChange(app.config.url);
@@ -164,11 +169,11 @@
         return false;
       }
 
-      app.getScreenshot((screenshot) => {
+      app.getBottomMostWindow().getScreenshot(screenshot => {
         if (screenshot) {
           this.saveScreenshot(url, screenshot);
         }
-      });
+      }, null, null, null, true);
     },
 
     /**

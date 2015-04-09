@@ -147,6 +147,12 @@ suite('link_helper_test.js', function() {
       test('URL with phone number in the middle', function() {
         testURLOK('http://somesite.com/q,12288296666/');
       });
+      test('Full width char prefix', function() {
+        testURLMatch('：mozilla.org', 'mozilla.org', true);
+      });
+      test('non ascii prefix', function() {
+        testURLMatch('àmozilla.org', 'mozilla.org', true);
+      });
     });
 
     suite('Failures', function() {
@@ -233,7 +239,7 @@ suite('link_helper_test.js', function() {
     }
 
     function phone2msg(phone) {
-      return '<a data-dial="' + phone + '"' +
+      return '<a dir="ltr" data-dial="' + phone + '"' +
              ' data-action="dial-link">' + phone + '</a>';
     }
 
@@ -360,7 +366,7 @@ suite('link_helper_test.js', function() {
         '<a data-url="http://stackoverflow.com/q/12882966/" ' +
         'data-action="url-link" >http://stackoverflow.com/q/12882966/</a>' +
         ' and call me at ' +
-        '<a data-dial="+18155551212" data-action="dial-link">' +
+        '<a dir="ltr" data-dial="+18155551212" data-action="dial-link">' +
         '+18155551212</a> or (e-mail <a data-email="user@hostname.tld"' +
         ' data-action="email-link">user@hostname.tld</a>)';
       assert.equal(LinkHelper.searchAndLinkClickableData(test), expected);

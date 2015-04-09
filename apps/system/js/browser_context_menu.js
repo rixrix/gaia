@@ -1,6 +1,5 @@
 /* global MozActivity, IconsHelper, LazyLoader */
 /* global applications */
-/* global BookmarksDatabase */
 
 (function(window) {
   'use strict';
@@ -74,12 +73,13 @@
   };
 
   BrowserContextMenu.prototype.view = function() {
-    return '<form class="contextmenu" role="dialog" tabindex="-1"' +
-              ' data-type="action" ' +
-              'id="' + this.CLASS_NAME + this.instanceID + '">' +
-              '<header class="contextmenu-header"></header>' +
-              '<menu class="contextmenu-list"></menu>' +
-            '</form>';
+    var id = this.CLASS_NAME + this.instanceID;
+    var content = `<form class="contextmenu" role="dialog" tabindex="-1"
+              data-type="action" id="${id}">
+              <header class="contextmenu-header"></header>
+              <menu class="contextmenu-list"></menu>
+            </form>`;
+    return content;
   };
 
   BrowserContextMenu.prototype.kill = function() {
@@ -124,6 +124,7 @@
     }
     this._injected = true;
     this.buildMenu(menu);
+    this.app && this.app.blur();
     this.element.classList.add('visible');
   },
 
@@ -181,6 +182,10 @@
     return items;
   };
 
+  BrowserContextMenu.prototype.isVisible = function() {
+    return this.element && this.element.classList.contains('visible');
+  };
+
   BrowserContextMenu.prototype.hide = function(evt) {
     if (!this.element) {
       return;
@@ -197,13 +202,14 @@
     }
   };
 
-  BrowserContextMenu.prototype.openUrl = function(url) {
+  BrowserContextMenu.prototype.openUrl = function(url, isPrivate) {
     /*jshint -W031 */
     new MozActivity({
       name: 'view',
       data: {
         type: 'url',
-        url: url
+        url: url,
+        isPrivate: isPrivate
       }
     });
   };
@@ -230,6 +236,10 @@
       iconable: false
     };
 
+    if (this.app.webManifestURL) {
+      data.manifestURL = this.app.webManifestURL;
+    }
+
     LazyLoader.load('shared/js/icons_helper.js', (() => {
       IconsHelper.getIcon(url, null, {icons: favicons}).then(icon => {
         if (icon) {
@@ -243,7 +253,14 @@
     }));
   };
 
-  BrowserContextMenu.prototype.newWindow = function(manifest) {
+  BrowserContextMenu.prototype.newWindow = function(manifest, isPrivate) {
+    // For private windows we create an empty private app window.
+    if (isPrivate) {
+      window.dispatchEvent(new CustomEvent('new-private-window'));
+      return;
+    }
+
+    // Else we open up the browser.
     var newTabApp = applications.getByManifestURL(manifest);
     newTabApp.launch();
   };
@@ -256,8 +273,8 @@
   };
 
   BrowserContextMenu.prototype.generateSystemMenuItem = function(item) {
-
     var nodeName = item.nodeName.toUpperCase();
+    var documentURI = item.data.documentURI;
     var uri = item.data.uri;
     var text = item.data.text;
 
@@ -268,13 +285,18 @@
           label: _('open-in-new-window'),
           callback: this.openUrl.bind(this, uri)
         }, {
+          id: 'open-in-new-private-window',
+          label: _('open-in-new-private-window'),
+          callback: this.openUrl.bind(this, uri, true)
+        }, {
           id: 'bookmark-link',
           label: _('add-link-to-home-screen'),
           callback: this.bookmarkUrl.bind(this, uri, text)
         }, {
           id: 'save-link',
           label: _('save-link'),
-          callback: this.app.browser.element.download.bind(this, uri)
+          callback: this.app.browser.element.download.bind(
+            this.app.browser.element, uri, { referrer: documentURI })
         }, {
           id: 'share-link',
           label: _('share-link'),
@@ -297,7 +319,8 @@
         return [{
           id: 'save-' + type,
           label: _('save-' + type),
-          callback: this.app.browser.element.download.bind(this, uri)
+          callback: this.app.browser.element.download.bind(
+            this.app.browser.element, uri, { referrer: documentURI })
         }, {
           id: 'share-' + type,
           label: _('share-' + type),
@@ -314,10 +337,21 @@
       var config = this.app.config;
       var menuData = [];
 
+      var finish = () => {
+        this.showMenu(menuData);
+        resolve();
+      };
+
       menuData.push({
         id: 'new-window',
         label: _('new-window'),
         callback: this.newWindow.bind(this, manifest)
+      });
+
+      menuData.push({
+        id: 'new-private-window',
+        label: _('new-private-window'),
+        callback: this.newWindow.bind(this, manifest, true)
       });
 
       menuData.push({
@@ -326,24 +360,27 @@
         callback: this.showWindows.bind(this)
       });
 
-      BookmarksDatabase.get(config.url).then((result) => {
-        if (!result) {
-          menuData.push({
-            id: 'add-to-homescreen',
-            label: _('add-to-home-screen'),
-            callback: this.bookmarkUrl.bind(this, config.url, name)
-          });
-        }
+      // Do not show the bookmark/share buttons if the url starts with app.
+      // This is because in some cases we use the app chrome to view system
+      // pages. E.g., private browsing.
+      if (config.url.startsWith('app')) {
+        finish();
+        return;
+      }
 
-        menuData.push({
-          id: 'share',
-          label: _('share'),
-          callback: this.shareUrl.bind(this, config.url)
-        });
-
-        this.showMenu(menuData);
-        resolve();
+      menuData.push({
+        id: 'add-to-homescreen',
+        label: _('add-to-home-screen'),
+        callback: this.bookmarkUrl.bind(this, config.url, name)
       });
+
+      menuData.push({
+        id: 'share',
+        label: _('share'),
+        callback: this.shareUrl.bind(this, config.url)
+      });
+
+      finish();
     });
   };
 

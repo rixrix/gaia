@@ -57,12 +57,37 @@
     },
 
     /**
+     * This function will be called by window managers while top most app
+     * window is changed to notify nfc module in gecko.
+     */
+    setNFCFocus: function(enable) {
+      if (!this.browser || !this.browser.element ||
+          this._nfcActive === enable ||
+          (this.CLASS_NAME !== 'AppWindow' &&
+           this.CLASS_NAME !== 'ActivityWindow' &&
+           this.CLASS_NAME !== 'PopupWindow') &&
+           this.CLASS_NAME !== 'HomescreenWindow') {
+          // XXX: Implement this.belongToAppWindow()
+        return;
+      }
+      this.debug(this.name + ':' + this.instanceID +
+        ' is setting nfc active to: ' + enable);
+      try {
+        this._nfcActive = enable;
+        this.browser.element.setNFCFocus(enable);
+      } catch (err) {
+        this.debug('set nfc active is not implemented');
+      }
+    },
+
+    /**
      * get the screenshot of mozbrowser iframe.
      * If it succeed, the blob would be stored in this._screenshotBlob.
      * @param  {Function} callback The callback function to be invoked
      *                             after we get the screenshot.
      */
-    getScreenshot: function bm_getScreenshot(callback, width, height, timeout) {
+    getScreenshot: function bm_getScreenshot(callback, width, height, timeout,
+                                             ignoreFront) {
       if (!this.browser || !this.browser.element) {
         if (callback) {
           callback();
@@ -73,9 +98,12 @@
       var invoked = false;
       var timer;
 
+
       // First, let's check if we have a frontWindow, if so this is the one
-      // we will want a screenshot of!
-      if (this.frontWindow) {
+      // we will want a screenshot of, passing ignoreFront lets us skip this
+      // if we want a screenshot of the browser element
+      ignoreFront = (typeof ignoreFront === 'undefined') ? false : ignoreFront;
+      if (!ignoreFront && this.frontWindow) {
         this.frontWindow.getScreenshot(callback, width, height, timeout);
         return;
       }
@@ -91,43 +119,63 @@
         }, timeout);
       }
 
+      //
+      // Since homescreen is the only app contains transparent background,
+      // we only store png screenshot for homescreen to save more memory.
+      //
+      var type = this.isHomescreen ?
+        'image/png' : 'image/jpeg';
+
       var req = this.iframe.getScreenshot(
         width || this.width || layoutManager.width,
-        height || this.height || layoutManager.height);
+        height || this.height || layoutManager.height,
+        type);
 
-      req.onsuccess = function gotScreenshotFromFrame(evt) {
-        var result = evt.target.result;
+      var success = function(result) {
         if (!width) {
           // Refresh _screenshotBlob when no width/height is specified.
           self._screenshotBlob = result;
         }
 
         self.debug('getScreenshot succeed!');
-        if (invoked)
+        if (invoked) {
           return;
+        }
         self.debug('get screenshot success!!!!');
         invoked = true;
-        if (timer)
+        if (timer) {
           window.clearTimeout(timer);
-        if (callback)
+        }
+        if (callback) {
           callback(result);
+        }
       };
-
-      req.onerror = function gotScreenshotFromFrameError(evt) {
-
+      var error = function() {
         self.debug('getScreenshot failed!');
-        if (invoked)
+        if (invoked) {
           return;
+        }
         invoked = true;
-        if (timer)
+        if (timer) {
           window.clearTimeout(timer);
-        if (callback)
+        }
+        if (callback) {
           callback();
+        }
       };
+      if (req.then) {
+        req.then(success, error);
+      } else {
+        req.onsuccess = function(evt) {
+          success(evt.target.result);
+        };
+        req.onerror = error;
+      }
     },
 
     focus: function bm_focus() {
-      if (this.browser && this.browser.element) {
+      if (this.browser && this.browser.element &&
+          !(this.contextmenu && this.contextmenu.isShown())) {
         this.browser.element.focus();
       }
     },
@@ -169,6 +217,7 @@
           'setActive' in this.browser.element) {
         this.debug('setActive on browser element:' + active);
         this.browser.element.setActive(active);
+        var topMostUI = Service.query('getTopMostUI');
       }
     },
 
@@ -194,18 +243,29 @@
       var self = this;
       if (this.browser.element) {
         var r = this.browser.element.getCanGoBack();
-        r.onsuccess = function(evt) {
-          self._backable = evt.target.result;
-          if (callback)
-            callback(evt.target.result);
+        var success = function(result) {
+          self._backable = result;
+          if (callback) {
+            callback(result);
+          }
         };
-        r.onerror = function(evt) {
-          if (callback)
+        var error = function() {
+          if (callback) {
             callback();
+          }
         };
+        if (r.then) {
+          r.then(success, error);
+        } else {
+          r.onsuccess = function(evt) {
+            success(evt.target.result);
+          };
+          r.onerror = error;
+        }
       } else {
-        if (callback)
+        if (callback) {
           callback();
+        }
       }
     },
 
@@ -217,15 +277,25 @@
       var self = this;
       if (this.browser.element) {
         var r = this.browser.element.getCanGoForward();
-        r.onsuccess = function(evt) {
-          self._forwardable = evt.target.result;
-          if (callback)
-            callback(evt.target.result);
+        var success = function(result) {
+          self._forwardable = result;
+          if (callback) {
+            callback(result);
+          }
         };
-        r.onerror = function(evt) {
-          if (callback)
+        var error = function() {
+          if (callback) {
             callback();
+          }
         };
+        if (r.then) {
+          r.then(success, error);
+        } else {
+          r.onsuccess = function(evt) {
+            success(evt.target.result);
+          };
+          r.onerror = error;
+        }
       } else {
         if (callback)
           callback();

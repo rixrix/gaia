@@ -4,19 +4,19 @@
 
 import time
 
-from gaiatest import GaiaTestCase
-from gaiatest.mocks.mock_contact import MockContact
+from marionette_driver import Wait
 
+from gaiatest import GaiaTestCase
 from gaiatest.apps.contacts.app import Contacts
+from gaiatest.mocks.mock_contact import MockContact
 
 
 class TestContacts(GaiaTestCase):
 
     def setUp(self):
         GaiaTestCase.setUp(self)
-
         self.contact = MockContact(tel={
-            'value': self.testvars["carrier"]["phone_number"]})
+            'value': self.environment.phone_numbers[0]})
         self.data_layer.insert_contact(self.contact)
 
     def test_sms_contact(self):
@@ -44,9 +44,8 @@ class TestContacts(GaiaTestCase):
         self.assertEqual(new_message.first_recipient_name, expected_name)
         self.assertEqual(new_message.first_recipient_number_attribute, expected_tel)
 
-        # check that the keyboard is open by default
         self.marionette.switch_to_frame()
-        self.assertTrue(new_message.keyboard.is_keyboard_displayed)
+        Wait(self.marionette).until(lambda m: new_message.keyboard.is_keyboard_displayed)
         self.apps.switch_to_displayed_app()
 
         new_message.type_message(text_message_content)

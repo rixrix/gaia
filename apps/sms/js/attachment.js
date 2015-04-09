@@ -29,9 +29,20 @@
     this.name = blob.name || options.name ||
       navigator.mozL10n.get('unnamed-attachment');
     this.isDraft = !!options.isDraft;
+
+    // force the _renderer property to be non enumerable so that we don't try to
+    // store it in IndexedDB
+    Object.defineProperty(this, '_renderer', { writable: true });
   }
 
   Attachment.prototype = {
+    /* private methods */
+    _getAttachmentRenderer: function() {
+      this._renderer = this._renderer || AttachmentRenderer.for(this);
+      return this._renderer;
+    },
+
+    /* public properties */
     get size() {
       return this.blob.size;
     },
@@ -40,8 +51,9 @@
       return Utils.typeFromMimeType(this.blob.type);
     },
 
+    /* public methods */
     render: function(readyCallback) {
-      var attachmentRenderer = AttachmentRenderer.for(this);
+      var attachmentRenderer = this._getAttachmentRenderer();
 
       attachmentRenderer.render().catch(function(e) {
         console.error('Error occurred while rendering attachment.', e);
@@ -52,13 +64,21 @@
       return attachmentRenderer.getAttachmentContainer();
     },
 
+    updateFileSize: function() {
+      var attachmentRenderer = this._getAttachmentRenderer();
+      attachmentRenderer.updateFileSize();
+    },
+
     view: function(options) {
       // Make sure media is openable and savable even if:
       //   - Blob mimetype is unsupported but file extension is valid.
       //   - File extenion is missing or invalid but mimetype is supported.
 
       var mimetype =
-        MimeMapper.guessTypeFromFileProperties(this.name, this.blob.type);
+        MimeMapper.guessTypeFromFileProperties(
+          this.name,
+          this.blob.type.toLowerCase()
+        );
       var filename = MimeMapper.ensureFilenameMatchesType(this.name, mimetype);
 
       // Override filename, so that every attachment that is saved via "open"
@@ -75,10 +95,9 @@
         }
       });
       activity.onerror = function() {
-        var _ = navigator.mozL10n.get;
         console.error('error with open activity', this.error.name);
         if (this.error.name === 'NO_PROVIDER') {
-          alert(_('attachmentOpenError'));
+          Utils.alert('attachmentOpenError');
         }
       };
     }

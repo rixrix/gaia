@@ -2,18 +2,16 @@
 
 var assert = require('assert'),
     NotificationTest = require('./lib/notification').NotificationTest,
-    NotificationList = require('./lib/notification').NotificationList,
-    System = require('./lib/system');
+    NotificationList = require('./lib/notification').NotificationList;
 
 marionette('notification count tests', function() {
-  var client = marionette.client({
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
-    }
-  });
+  var client = marionette.client();
   var notificationList = new NotificationList(client);
-  var system = new System(client);
+
+  var system;
+  setup(function() {
+    system = client.loader.getAppClass('system');
+  });
 
   test('notifications count should be updated', function(done) {
     client.switchToFrame();

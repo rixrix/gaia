@@ -1,18 +1,12 @@
 'use strict';
 
-var System = require('./lib/system');
-
 marionette('System update - Splash screen', function() {
 
-  var client = marionette.client({
-    settings: {
-      'ftu.manifestURL': null,
-    }
-  });
+  var client = marionette.client();
   var system;
 
   setup(function() {
-    system = new System(client);
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
   });
 

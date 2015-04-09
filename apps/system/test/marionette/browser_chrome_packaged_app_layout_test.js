@@ -1,27 +1,21 @@
 'use strict';
 
 var assert = require('assert');
-var System = require('./lib/system');
-
 marionette('Browser - App /w Fullscreen Navigation Chrome', function() {
 
   var client = marionette.client({
     prefs: {
       'dom.w3c_touch_events.enabled': 1
     },
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
-    },
     apps: {
-      'hosted_nav_app.gaiamobile.org': __dirname + '/hosted_nav_app',
+      'hosted_nav_app.gaiamobile.org': __dirname + '/../apps/hosted_nav_app',
     }
   });
 
   var system;
 
   setup(function() {
-    system = new System(client);
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
   });
 

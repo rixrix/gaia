@@ -311,6 +311,19 @@
       givenName: 'Ada',
       tel: {
         value: '104'
+      },
+      email: {
+        value: 'ada@lovelace.com'
+      }
+    })
+  );
+
+  ContactsDB.push(
+    new Contact({
+      familyName: 'Tesla',
+      givenName: 'Nikola',
+      email: {
+        value: 'nikola@tesla.com'
       }
     })
   );
@@ -395,6 +408,16 @@
     }]
   });
 
+  var rtlName = new Contact({
+    familyName: 'الخيام',
+    givenName: 'عمر',
+    tel: [{
+        value: '+97121111111',
+        type: ['Mobile'],
+        carrier: 'اتصالات'
+    }]
+  });
+
   var readyPromise = Promise.all([
     getAsset('/js/desktop-only/assets/photo-man.jpg'),
     getAsset('/js/desktop-only/assets/photo-woman.jpg'),
@@ -408,6 +431,7 @@
   ContactsDB.push(grace);
   ContactsDB.push(tom);
   ContactsDB.push(longname);
+  ContactsDB.push(rtlName);
 
   ContactsDB.push(
     new Contact({

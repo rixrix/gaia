@@ -8,14 +8,18 @@ var assert = require('assert'),
 var SHARED_PATH = __dirname + '/../../../../shared/test/integration/';
 
 marionette('notification tests', function() {
-  var client = marionette.client({
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
-    }
-  });
+  var client = marionette.client();
+  var system;
   var actions = new Marionette.Actions(client);
   var notificationList = new NotificationList(client);
+
+  setup(function() {
+    system = client.loader.getAppClass('system');
+    system.waitForStartup();
+    client.waitFor(function() {
+      return system.activeHomescreenFrame.displayed();
+    });
+  });
 
   test('fire notification', function() {
     var details = {tag: 'test tag',
@@ -31,8 +35,10 @@ marionette('notification tests', function() {
 
   test('swipe up should hide the toast', function() {
     var toaster = dispatchNotification(client);
-    actions.flick(toaster, 50, 30, 50, 1, 300).perform(function() {
-      assert.equal(toaster.displayed(), false);
+    actions.flick(toaster, 50, 30, 50, -30, 300).perform(function() {
+      client.waitFor(function() {
+        return !toaster.displayed();
+      }, {timeout: 1000});
     });
   });
 
@@ -172,7 +178,9 @@ function dispatchNotification(client) {
   var toaster = client.findElement('#notification-toaster');
   var notify = new NotificationTest(client, details);
 
-  client.helper.waitForElement('#notification-toaster.displayed');
+  client.helper.waitFor(function() {
+    return client.findElement('#notification-toaster.displayed').displayed();
+  });
   return toaster;
 }
 

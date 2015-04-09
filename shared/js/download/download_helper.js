@@ -387,7 +387,7 @@ var DownloadHelper = (function() {
   }
 
   /*
-   * This method allows clients to remove a downlaod, from the
+   * This method allows clients to remove a download, from the
    * list and the phone.
    *
    * @param{Object} It represents a DOMDownload object
@@ -402,13 +402,27 @@ var DownloadHelper = (function() {
         if (!navigator.mozDownloadManager) {
           sendError(req, 'DownloadManager not present', CODE.INVALID_STATE);
         } else {
-          navigator.mozDownloadManager.remove(download).then(
-            function success() {
-              req.done(download);
+          // First we pause the download so that everyone knows it's being
+          // stopped. The Downloads API itself won't stop the download first,
+          // it will simply kill it.
+          // XXXAus: Remove when we fix bug #1090551
+          download.pause().then(
+            function() {
+              navigator.mozDownloadManager.remove(download).then(
+                function success() {
+                  req.done(download);
+                },
+                function error() {
+                  sendError(req,
+                            'DownloadManager doesnt know about this download',
+                            CODE.INVALID_STATE);
+                }
+              );
             },
-            function error() {
-              sendError(req, 'DownloadManager doesnt know about this download',
-                CODE.INVALID_STATE);
+            function() {
+              sendError(req,
+                        'Failed to pause download before removal',
+                        CODE.INVALID_STATE);
             }
           );
         }
@@ -489,6 +503,20 @@ var DownloadHelper = (function() {
       var req;
       var show = DownloadUI.show;
 
+      // Canceled activites are normal and shouldn't be interpreted as errors.
+      // Unfortunately, this isn't reported in a standard way by our
+      // applications (or third party apps for that matter). This is why we
+      // have this lazy filter here that may need to be updated in the future
+      // but hopefully will just get removed.
+      if (error.message &&
+          (error.message.endsWith('canceled') ||
+           error.message.endsWith('cancelled'))) {
+        // Since this isn't actually an error, we invoke the callback with null.
+        cb && cb(null);
+        // and return early.
+        return;
+      }
+
       switch (error.code) {
         case CODE.NO_SDCARD:
         case CODE.UNMOUNTED_SDCARD:
@@ -512,7 +540,6 @@ var DownloadHelper = (function() {
           req.onconfirm = function tfoeOnConfirm() {
             showRemoveFileUI(download, cb);
           };
-
           break;
       }
 

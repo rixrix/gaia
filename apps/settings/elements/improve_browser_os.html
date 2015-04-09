@@ -2,18 +2,15 @@
   <template>
 
     <gaia-header action="back" data-href="#root">
-      <h1 data-l10n-id="improveBrowserOSTitle">Improve Browser OS</h1>
+      <h1 data-l10n-id="improveBrowserOSTitle"></h1>
     </gaia-header>
 
     <div>
       <ul>
         <li>
-          <button data-href="#improveBrowserOS-chooseFeedback"
-                  data-l10n-id="sendMozillaFeedback"
-                  class="icon icon-view"
-                  id="improveBrowserOS-chooseFeedback">
-            Send Mozilla Feedback
-          </button>
+          <a class="menu-item" href="#improveBrowserOS-chooseFeedback">
+            <span data-l10n-id="sendMozillaFeedback">Send Mozilla Feedback</span>
+          </a>
         </li>
       </ul>
 
@@ -35,6 +32,11 @@
             <input type="checkbox" name="debug.performance_data.shared">
             <span data-l10n-id="sharePerformanceAndUsageData">Submit Data</span>
           </label>
+        </li>
+        <li>
+          <a id="appUsageByRegion" class="menu-item">
+            <span data-l10n-id="appUsageByRegion"></span>
+          </a>
         </li>
       </ul>
 
@@ -72,5 +74,6 @@
       </ul>
     </div>
 
+    <panel data-path="panels/improveBrowserOS/panel"></panel>
   </template>
 </element>

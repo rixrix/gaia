@@ -10,11 +10,10 @@
   "fullscreen": true,
   "permissions": {
     "themeable":{},
-    "storage":{},
     "device-storage:pictures":{ "access": "readwrite" },
     "device-storage:videos":{ "access": "readwrite" },
     "audio-channel-content":{},
-    "nfc": { "access": "readwrite" },
+    "nfc-share": {},
     "feature-detection": {}
   },
   "activities": {

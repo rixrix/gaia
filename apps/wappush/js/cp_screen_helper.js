@@ -398,7 +398,6 @@ var CpScreenHelper = (function() {
   function cpsh_onQuit(evt) {
     evt.preventDefault();
 
-    WapPushManager.clearNotifications(messageTag);
     MessageDB.deleteByTimestamp(messageTag).then(function() {
       WapPushManager.close();
     }, function() {
@@ -470,21 +469,9 @@ var CpScreenHelper = (function() {
       }
     }
 
-    // The validation process result should come from gecko.
-    if (!showPINInput && !isDocumentValid) {
-      // Something went wrong (maybe the message the device received could not
-      // be authenticated against the SIM card), show an alter.
-      message = finishConfirmDialog.querySelector('strong');
-      message.textContent = _('cp-finish-confirm-dialog-message-invalid-doc');
-      finishConfirmDialog.hidden = false;
-      return;
-    }
-
     processed = true;
     // Store APNs into the database.
     StoreProvisioning.provision(apns, iccCardIndex);
-
-    WapPushManager.clearNotifications(messageTag);
 
     /* Show finish confirm dialog after having deleted the message, this is
      * done even if the deletion fails for some reason. */

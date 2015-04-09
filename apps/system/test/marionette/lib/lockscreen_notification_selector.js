@@ -41,7 +41,15 @@
         return this.ensure().validateElement(element);
       }).bind(this))
       .filter((function (element) {
-        return this.compareNotificationDetails(detail, this.toDetail(element));
+        // We wrap this in a try/catch in case this is called after a .not().
+        // Otherwise if the element does not exist in the DOM after being
+        // removed it may throw a stale element exception.
+        try {
+          return this.compareNotificationDetails(detail,
+            this.toDetail(element));
+        } catch (e) {
+          return false;
+        }
       }).bind(this)).length;
   };
 
@@ -89,10 +97,8 @@
         title: node.querySelector('.title-container .title')
                .innerHTML,
         body: node.querySelector('.detail').innerHTML,
-        lang: node.querySelector('.title-container')
-              .getAttribute('lang'),
-        dir: node.querySelector('.title-container')
-              .getAttribute('dir'),
+        lang: node.getAttribute('lang'),
+        dir: node.getAttribute('data-predefined-dir'),
         manifestURL: node.getAttribute('data-manifest-u-r-l')
       };
     });
@@ -114,6 +120,9 @@
       return false;
     }
     if (detailsA.bidi && detailsB.bidi !== detailsA.bidi) {
+      return false;
+    }
+    if (detailsA.dir && detailsB.dir !== detailsA.dir) {
       return false;
     }
     return true;

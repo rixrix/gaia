@@ -7,7 +7,9 @@
         Navigation,
         Promise,
         ThreadUI,
-        EventDispatcher
+        Threads,
+        EventDispatcher,
+        DOMError
 */
 /*exported Compose */
 
@@ -28,7 +30,7 @@ var Compose = (function() {
   var placeholderClass = 'placeholder';
   var attachmentClass = 'attachment-container';
 
-  var attachments = new WeakMap();
+  var attachments = new Map();
 
   // will be defined in init
   var dom = {
@@ -45,6 +47,9 @@ var Compose = (function() {
     size: null,
     lastScrollPosition: 0,
     resizing: false,
+
+    // Stop further input because the max size is exceeded
+    locked: false,
 
     // 'sms' or 'mms'
     type: 'sms',
@@ -64,7 +69,7 @@ var Compose = (function() {
     var node;
 
     for (node = domElement.firstChild; node; node = node.nextSibling) {
-      // hunt for an attachment in the WeakMap and append it
+      // hunt for an attachment in the Map and append it
       var attachment = attachments.get(node);
       if (attachment) {
         content.push(attachment);
@@ -175,12 +180,12 @@ var Compose = (function() {
 
   function composeKeyEvents(e) {
     // if locking and no-backspace pressed, cancel
-    if (compose.lock && e.which !== 8) {
+    if (state.locked && e.which !== 8) {
       e.preventDefault();
     } else {
       // trigger a recompute of size on the keypresses
       state.size = null;
-      compose.lock = false;
+      compose.unlock();
     }
   }
 
@@ -219,15 +224,14 @@ var Compose = (function() {
       return;
     }
 
-    var nodes = dom.message.querySelectorAll('iframe');
     var imgNodes = [];
-    var done = 0;
-    Array.prototype.forEach.call(nodes, function findImgNodes(node) {
-      var item = attachments.get(node);
-      if (item.type === 'img') {
+    attachments.forEach((attachment, node) => {
+      if (attachment.type === 'img') {
         imgNodes.push(node);
       }
     });
+
+    var done = 0;
 
     // Total number of images < 3
     //   => Set max image size to 2/5 message size limitation.
@@ -256,12 +260,8 @@ var Compose = (function() {
           state.size = null;
 
           item.blob = resizedBlob;
-          var newNode = item.render();
-          attachments.set(newNode, item);
-          if (dom.message.contains(node)) {
-            dom.message.insertBefore(newNode, node);
-            dom.message.removeChild(node);
-          }
+          item.updateFileSize();
+
           imageSized();
         });
       }
@@ -312,6 +312,14 @@ var Compose = (function() {
     };
   }
 
+  function disposeAttachmentNode(attachmentNode) {
+    var thumbnailURL = attachmentNode.dataset.thumbnail;
+    if (thumbnailURL) {
+      window.URL.revokeObjectURL(thumbnailURL);
+    }
+    attachments.delete(attachmentNode);
+  }
+
   var compose = {
     init: function composeInit(formId) {
       dom.form = document.getElementById(formId);
@@ -320,7 +328,8 @@ var Compose = (function() {
       dom.attachButton = document.getElementById('messages-attach-button');
       dom.optionsMenu = document.getElementById('attachment-options-menu');
       dom.counter = dom.form.querySelector('.js-message-counter');
-      dom.contentComposer = dom.form.querySelector('.js-content-composer');
+      dom.messagesAttach = dom.form.querySelector('.messages-attach-container');
+      dom.composerButton = dom.form.querySelector('.composer-button-container');
 
       subject = new SubjectComposer(
         dom.form.querySelector('.js-subject-composer')
@@ -365,7 +374,9 @@ var Compose = (function() {
       var onInteracted = this.emit.bind(this, 'interact');
 
       dom.message.addEventListener('focus', onInteracted);
-      dom.contentComposer.addEventListener('click', onInteracted);
+      dom.message.addEventListener('click', onInteracted);
+      dom.messagesAttach.addEventListener('click', onInteracted);
+      dom.composerButton.addEventListener('click', onInteracted);
       subject.on('focus', onInteracted);
 
       return this;
@@ -421,6 +432,7 @@ var Compose = (function() {
         // to be properly rendered after a cold start for the app
         if (fragment.blob) {
           fragment = new Attachment(fragment.blob, {
+            name: fragment.name,
             isDraft: true
           });
         }
@@ -476,9 +488,21 @@ var Compose = (function() {
       return state.empty;
     },
 
-    /** Stop further input because the max size is exceded
+    /**
+     * Lock composer when size limit is reached.
      */
-    lock: false,
+    lock: function() {
+      state.locked = true;
+      dom.attachButton.disabled = true;
+    },
+
+    /**
+     * Unlock composer when size is decreased again.
+     */    
+    unlock: function() {
+      state.locked = false;
+      dom.attachButton.disabled = false;
+    },
 
     disable: function(state) {
       dom.sendButton.disabled = state;
@@ -587,6 +611,9 @@ var Compose = (function() {
       state.type = 'sms';
       this.onTypeChange();
 
+      // Dispose attachments
+      attachments.forEach((attachment, node) => disposeAttachmentNode(node));
+
       dom.message.innerHTML = '<br>';
 
       subject.reset();
@@ -626,9 +653,12 @@ var Compose = (function() {
       /* Bug 1040144: replace ThreadUI direct invocation by a instanciation-time
        * property
        */
-      var hasEmailRecipient = ThreadUI.recipients.list.some(
-        function(recipient) { return recipient.isEmail; }
-      );
+      var recipients = Threads.active ?
+        Threads.active.participants :
+        ThreadUI.recipients && ThreadUI.recipients.numbers;
+      var hasEmailRecipient = recipients ?
+        recipients.some(Utils.isEmailAddress) :
+        false;
 
       /* Note: in the future, we'll maybe want to force 'mms' from the UI */
       var newType =
@@ -658,7 +688,7 @@ var Compose = (function() {
       /* Bug 1040144: replace ThreadUI direct invocation by a instanciation-time
        * property */
       var recipients = ThreadUI.recipients;
-      var recipientsValue = recipients.inputValue;
+      var recipientsValue = recipients && recipients.inputValue;
       var hasRecipients = false;
 
       // Set hasRecipients to true based on the following conditions:
@@ -687,10 +717,20 @@ var Compose = (function() {
     },
 
     _onAttachmentRequestError: function c_onAttachmentRequestError(err) {
-      if (err === 'file too large') {
-        alert(navigator.mozL10n.get('files-too-large', { n: 1 }));
-      } else {
-        console.warn('Unhandled error spawning activity:', err);
+      var errId = err instanceof DOMError ? err.name : err.message;
+      if (errId === 'file too large') {
+        Utils.alert({
+          id: 'attached-files-too-large',
+          args: {
+            n: 1,
+            mmsSize: (Settings.mmsSizeLimitation / 1024).toFixed(0)
+          }
+        });
+
+      //'pick cancelled' is the error thrown when the pick activity app is
+      // canceled normally
+      } else if (errId !== 'ActivityCanceled' && errId !== 'pick cancelled') {
+        console.warn('Unhandled error: ', err);
       }
     },
 
@@ -715,8 +755,9 @@ var Compose = (function() {
           this.currentAttachment.view();
           break;
         case 'attachment-options-remove':
-          attachments.delete(this.currentAttachmentDOM);
           dom.message.removeChild(this.currentAttachmentDOM);
+          disposeAttachmentNode(this.currentAttachmentDOM);
+
           state.size = null;
           onContentChanged();
           AttachmentMenu.close();
@@ -727,7 +768,9 @@ var Compose = (function() {
             var fragment = insert(newAttachment);
 
             dom.message.insertBefore(fragment, this.currentAttachmentDOM);
+
             dom.message.removeChild(this.currentAttachmentDOM);
+            disposeAttachmentNode(this.currentAttachmentDOM);
 
             onContentChanged(newAttachment);
             AttachmentMenu.close();
@@ -779,7 +822,7 @@ var Compose = (function() {
       // Mimick the DOMRequest API
       var requestProxy = {};
       var activityData = {
-        type: ['image/*', 'audio/*', 'video/*']
+        type: ['image/*', 'audio/*', 'video/*', 'text/vcard']
       };
       var activity;
 
@@ -799,7 +842,7 @@ var Compose = (function() {
           result.blob.size > Settings.mmsSizeLimitation &&
           Utils.typeFromMimeType(result.blob.type) !== 'img') {
           if (typeof requestProxy.onerror === 'function') {
-            requestProxy.onerror('file too large');
+            requestProxy.onerror(new Error('file too large'));
           }
           return;
         }
@@ -815,7 +858,7 @@ var Compose = (function() {
       // Re-throw Gecko-level errors
       activity.onerror = function() {
         if (typeof requestProxy.onerror === 'function') {
-          requestProxy.onerror.apply(requestProxy, arguments);
+          requestProxy.onerror.call(requestProxy, activity.error);
         }
       };
 

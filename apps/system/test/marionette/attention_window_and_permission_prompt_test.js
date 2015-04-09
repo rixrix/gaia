@@ -1,20 +1,15 @@
 'use strict';
 
 var assert = require('assert');
-var System = require('./lib/system');
 var FakeLoopApp = require('./lib/fakeloopapp.js');
 
 marionette('AttentionWindow - Permission Prompt', function() {
   var apps = {};
-  apps[FakeLoopApp.DEFAULT_ORIGIN] = __dirname + '/fakeloopapp';
+  apps[FakeLoopApp.DEFAULT_ORIGIN] = __dirname + '/../apps/fakeloopapp';
 
   var client = marionette.client({
     prefs: {
       'dom.w3c_touch_events.enabled': 1
-    },
-    settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false
     },
     apps: apps
   });
@@ -23,7 +18,7 @@ marionette('AttentionWindow - Permission Prompt', function() {
   var fakeLoop;
 
   setup(function() {
-    system = new System(client);
+    system = client.loader.getAppClass('system');
     system.waitForStartup();
 
     fakeLoop = new FakeLoopApp(client);

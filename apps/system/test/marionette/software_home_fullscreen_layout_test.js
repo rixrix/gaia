@@ -1,11 +1,10 @@
 'use strict';
 
 var assert = require('assert');
-var Home = require(
-  '../../../verticalhome/test/marionette/lib/home2');
-var System = require('./lib/system');
-var Actions = require('marionette-client').Actions;
 var appUrl = 'app://fullscreen_layout.gaiamobile.org';
+
+var ReflowHelper =
+    require('../../../../tests/js-marionette/reflow_helper.js');
 
 marionette('Software Home Button - Fullscreen Layout', function() {
 
@@ -15,21 +14,20 @@ marionette('Software Home Button - Fullscreen Layout', function() {
       'dom.w3c_touch_events.enabled': 1
     },
     settings: {
-      'ftu.manifestURL': null,
-      'lockscreen.enabled': false,
-      'software-button.enabled': true
+      'software-button.enabled': true,
+      'hud.reflows': true
     },
     apps: {
       'fullscreen_layout.gaiamobile.org':
-        __dirname + '/fullscreen_layout'
+        __dirname + '/../apps/fullscreen_layout'
     }
   });
   var home, system, actions, screenSize, shbSize;
 
   setup(function() {
-    home = new Home(client);
-    system = new System(client);
-    actions = new Actions(client);
+    home = client.loader.getAppClass('verticalhome');
+    system = client.loader.getAppClass('system');
+    actions = client.loader.getActions();
     system.waitForStartup();
     home.waitForLaunch();
     client.switchToFrame();
@@ -60,9 +58,56 @@ marionette('Software Home Button - Fullscreen Layout', function() {
 
     system.clickSoftwareHomeButton();
     client.waitFor(function() {
-      return client.findElement(System.Selector.activeHomescreenFrame)
+      return client.findElement(system.Selector.activeHomescreenFrame)
         .displayed();
     });
+  });
+
+  test('While in requested fullscreen, toggles without reflow',
+  function() {
+    var reflowHelper = new ReflowHelper(client);
+    system.stopDevtools();
+    system.stopClock();
+    system.stopStatusbar();
+
+    assert.ok(system.softwareHomeFullscreenLayout.displayed());
+
+    var frame = system.waitForLaunch(appUrl);
+    client.switchToFrame(frame);
+    client.helper.waitForElement('#fullscreen').click();
+
+    client.switchToFrame();
+
+    reflowHelper.startTracking(system.URL);
+
+    client.waitFor(function() {
+      return !system.softwareHomeFullscreenLayout.displayed();
+    });
+
+    // Tap to toggle
+    var fullScreenElement = client.helper.waitForElement(':-moz-full-screen');
+
+    actions.tap(fullScreenElement).perform();
+    client.waitFor(function() {
+      return system.softwareHomeFullscreenLayout.displayed();
+    });
+
+    actions.tap(fullScreenElement).perform();
+    client.waitFor(function() {
+      return !system.softwareHomeFullscreenLayout.displayed();
+    });
+
+    // Then exit fullscreen
+    client.executeScript(function() {
+      window.wrappedJSObject.document.mozCancelFullScreen();
+    });
+    client.waitFor(function() {
+      return system.softwareHomeFullscreenLayout.displayed();
+    });
+
+    var count = reflowHelper.getCount();
+    assert.equal(count, 0, 'we got ' + count + ' reflows instead of 0');
+    reflowHelper.stopTracking();
   });
 
   test('Is shown in an inline activity', function() {
@@ -70,14 +115,13 @@ marionette('Software Home Button - Fullscreen Layout', function() {
     client.switchToFrame(frame);
     newShareActivity();
     client.switchToFrame();
+    system.waitForActivityMenu();
     var bluetooth = system.getActivityOptionMatching('bluetooth');
     actions.tap(bluetooth).perform();
     client.switchToFrame();
-    client.waitFor(function() {
-      return client.findElement('.appWindow.inline-activity').displayed();
-    });
 
-    var bluetoothWindow = client.findElement('.appWindow.inline-activity');
+    var bluetoothWindow =
+      client.helper.waitForElement('.appWindow.inline-activity');
     var bluetoothHeight = bluetoothWindow.cssProperty('height');
     var screenHeight = client.findElement('#screen').size().height;
     var shbSelector = '#software-buttons-fullscreen-layout';
